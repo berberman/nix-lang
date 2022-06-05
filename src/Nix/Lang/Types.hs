@@ -7,7 +7,6 @@ module Nix.Lang.Types where
 
 import Data.Data (Data)
 import Data.Text (Text)
-import Data.Void (Void)
 
 data SrcSpan = SrcSpan
   { srcSpanFilename :: String,
@@ -19,98 +18,109 @@ data SrcSpan = SrcSpan
   deriving (Show, Eq, Ord, Data)
 
 data Located a = L SrcSpan a
-  deriving (Eq, Ord, Data, Functor, Foldable, Traversable)
+  deriving (Eq, Show, Ord, Data, Functor, Foldable, Traversable)
 
 --------------------------------------------------------------------------------
 data Ps
 
+data NoExtF = NoExtF
+  deriving (Eq, Show, Data)
+
+data NoExtC
+  deriving (Data)
+
+instance Show NoExtC where
+  show _ = undefined
+
 type instance NixIdP Ps = Text
 
-type instance XNixUri Ps = ()
+type instance XNixUri Ps = NoExtF
 
-type instance XNixInteger Ps = ()
+type instance XNixInteger Ps = NoExtF
 
-type instance XNixFloat Ps = ()
+type instance XNixFloat Ps = NoExtF
 
-type instance XNixBoolean Ps = ()
+type instance XNixBoolean Ps = NoExtF
 
-type instance XNixNull Ps = ()
+type instance XNixNull Ps = NoExtF
 
-type instance XNixStringLiteral Ps = ()
+type instance XNixStringLiteral Ps = NoExtF
 
-type instance XNixStringInterpol Ps = ()
+type instance XNixStringInterpol Ps = NoExtF
 
-type instance XXNixStringPart Ps = Void
+type instance XXNixStringPart Ps = NoExtC
 
-type instance XNixDoubleQuotesString Ps = ()
+type instance XNixDoubleQuotesString Ps = NoExtF
 
-type instance XNixDoubleSingleQuotesString Ps = ()
+type instance XNixDoubleSingleQuotesString Ps = NoExtF
 
-type instance XXNixString Ps = Void
+type instance XXNixString Ps = NoExtC
 
-type instance XNixLiteralPath Ps = ()
+type instance XNixLiteralPath Ps = NoExtF
 
-type instance XNixInterpolPath Ps = ()
+type instance XNixInterpolPath Ps = NoExtF
 
-type instance XXNixPath Ps = Void
+type instance XXNixPath Ps = NoExtC
 
-type instance XNixStaticAttrKey Ps = ()
+type instance XNixStaticAttrKey Ps = NoExtF
 
-type instance XNixDynamicStringAttrKey Ps = ()
+type instance XNixDynamicStringAttrKey Ps = NoExtF
 
-type instance XNixDynamicInterpolAttrKey Ps = ()
+type instance XNixDynamicInterpolAttrKey Ps = NoExtF
 
-type instance XXNixAttrKey Ps = Void
+type instance XXNixAttrKey Ps = NoExtC
 
-type instance XNixNormalBinding Ps = ()
+type instance XNixNormalBinding Ps = NoExtF
 
-type instance XNixInheritBinding Ps = ()
+type instance XNixInheritBinding Ps = NoExtF
 
-type instance XXNixBinding Ps = Void
+type instance XXNixBinding Ps = NoExtC
 
-type instance XNixVarPat Ps = ()
+type instance XNixVarPat Ps = NoExtF
 
-type instance XNixSetPat Ps = ()
+type instance XNixSetPat Ps = NoExtF
 
-type instance XXNixFuncPat Ps = Void
+type instance XXNixFuncPat Ps = NoExtC
 
-type instance XNixVar Ps = ()
+type instance XNixVar Ps = NoExtF
 
-type instance XNixLit Ps = ()
+type instance XNixLit Ps = NoExtF
 
-type instance XNixString Ps = ()
+type instance XXNixLit Ps = NoExtC
 
-type instance XNixPath Ps = ()
+type instance XNixString Ps = NoExtF
 
-type instance XNixEnvPath Ps = ()
+type instance XNixPath Ps = NoExtF
 
-type instance XNixLam Ps = ()
+type instance XNixEnvPath Ps = NoExtF
 
-type instance XNixApp Ps = ()
+type instance XNixLam Ps = NoExtF
 
-type instance XNixBinApp Ps = ()
+type instance XNixApp Ps = NoExtF
 
-type instance XNixNotApp Ps = ()
+type instance XNixBinApp Ps = NoExtF
 
-type instance XNixNegApp Ps = ()
+type instance XNixNotApp Ps = NoExtF
 
-type instance XNixList Ps = ()
+type instance XNixNegApp Ps = NoExtF
 
-type instance XNixSet Ps = ()
+type instance XNixList Ps = NoExtF
 
-type instance XNixLet Ps = ()
+type instance XNixSet Ps = NoExtF
 
-type instance XNixHasAttr Ps = ()
+type instance XNixLet Ps = NoExtF
 
-type instance XNixSelect Ps = ()
+type instance XNixHasAttr Ps = NoExtF
 
-type instance XNixIf Ps = ()
+type instance XNixSelect Ps = NoExtF
 
-type instance XNixWith Ps = ()
+type instance XNixIf Ps = NoExtF
 
-type instance XNixAssert Ps = ()
+type instance XNixWith Ps = NoExtF
 
-type instance XXNixExpr Ps = Void
+type instance XNixAssert Ps = NoExtF
+
+type instance XXNixExpr Ps = NoExtC
 
 type ParsedNixExpr = LNixExpr Ps
 
@@ -181,6 +191,16 @@ deriving instance
   ) =>
   Data (NixLit p)
 
+deriving instance
+  ( Show (XNixUri p),
+    Show (XNixInteger p),
+    Show (XNixFloat p),
+    Show (XNixNull p),
+    Show (XNixBoolean p),
+    Show (XXNixLit p)
+  ) =>
+  Show (NixLit p)
+
 type LNixLit p = Located (NixLit p)
 
 type family XNixUri p
@@ -217,6 +237,14 @@ deriving instance
   ) =>
   Data (NixStringPart p)
 
+deriving instance
+  ( Show (XNixStringLiteral p),
+    Show (XNixStringInterpol p),
+    Show (XXNixStringPart p),
+    Show (LNixExpr p)
+  ) =>
+  Show (NixStringPart p)
+
 type LNixStringPart p = Located (NixStringPart p)
 
 type family XNixStringLiteral p
@@ -248,6 +276,14 @@ deriving instance
   ) =>
   Data (NixString p)
 
+deriving instance
+  ( Show (XNixDoubleQuotesString p),
+    Show (XNixDoubleSingleQuotesString p),
+    Show (XXNixString p),
+    Show (NixStringPart p)
+  ) =>
+  Show (NixString p)
+
 type LNixString p = Located (NixString p)
 
 type family XNixDoubleQuotesString p
@@ -272,6 +308,14 @@ deriving instance
     Data (XXNixPath p)
   ) =>
   Data (NixPath p)
+
+deriving instance
+  ( Show (XNixLiteralPath p),
+    Show (XNixInterpolPath p),
+    Show (LNixStringPart p),
+    Show (XXNixPath p)
+  ) =>
+  Show (NixPath p)
 
 type LNixPath p = Located (NixPath p)
 
@@ -303,6 +347,17 @@ deriving instance
   ) =>
   Data (NixAttrKey p)
 
+deriving instance
+  ( Show (XNixStaticAttrKey p),
+    Show (XNixDynamicStringAttrKey p),
+    Show (XNixDynamicInterpolAttrKey p),
+    Show (LNixStringPart p),
+    Show (XXNixAttrKey p),
+    Show (NixIdP p),
+    Show (NixExpr p)
+  ) =>
+  Show (NixAttrKey p)
+
 type LNixAttrKey p = Located (NixAttrKey p)
 
 type family XNixStaticAttrKey p
@@ -319,6 +374,8 @@ type family XXNixAttrKey p
 newtype NixAttrPath p = NixAttrPath [LNixAttrKey p]
 
 deriving instance (Data p, Data (NixAttrKey p)) => Data (NixAttrPath p)
+
+deriving instance (Show (NixAttrKey p)) => Show (NixAttrPath p)
 
 type LNixAttrPath p = Located (NixAttrPath p)
 
@@ -342,6 +399,16 @@ deriving instance
   ) =>
   Data (NixBinding p)
 
+deriving instance
+  ( Show (XNixNormalBinding p),
+    Show (NixAttrPath p),
+    Show (NixExpr p),
+    Show (XNixInheritBinding p),
+    Show (XXNixBinding p),
+    Show (NixAttrKey p)
+  ) =>
+  Show (NixBinding p)
+
 type LNixBinding p = Located (NixBinding p)
 
 type family XNixNormalBinding p
@@ -361,6 +428,8 @@ data NixSetPatAs p = NixSetPatAs
 
 deriving instance (Data p, Data (NixIdP p)) => Data (NixSetPatAs p)
 
+deriving instance (Show (NixIdP p)) => Show (NixSetPatAs p)
+
 --------------------------------------------------------------------------------
 
 data NixSetPatBinding p = NixSetPatAsBinding
@@ -371,6 +440,8 @@ data NixSetPatBinding p = NixSetPatAsBinding
   }
 
 deriving instance (Data p, Data (NixIdP p), Data (NixExpr p)) => Data (NixSetPatBinding p)
+
+deriving instance (Show (NixIdP p), Show (NixExpr p)) => Show (NixSetPatBinding p)
 
 type LNixSetPatBinding p = Located (NixSetPatBinding p)
 
@@ -395,6 +466,16 @@ deriving instance
     Data (NixSetPatBinding p)
   ) =>
   Data (NixFuncPat p)
+
+deriving instance
+  ( Show (NixIdP p),
+    Show (XNixVarPat p),
+    Show (XNixSetPat p),
+    Show (XXNixFuncPat p),
+    Show (NixSetPatAs p),
+    Show (NixSetPatBinding p)
+  ) =>
+  Show (NixFuncPat p)
 
 type LNixFuncPat p = Located (NixFuncPat p)
 
@@ -478,6 +559,36 @@ deriving instance
     Data (XXNixExpr p)
   ) =>
   Data (NixExpr p)
+
+deriving instance
+  ( Show (NixIdP p),
+    Show (XNixVar p),
+    Show (XNixLit p),
+    Show (NixLit p),
+    Show (XNixString p),
+    Show (NixString p),
+    Show (NixPath p),
+    Show (XNixPath p),
+    Show (XNixEnvPath p),
+    Show (XNixLam p),
+    Show (NixFuncPat p),
+    Show (XNixApp p),
+    Show (XNixBinApp p),
+    Show (XNixNotApp p),
+    Show (XNixNegApp p),
+    Show (XNixList p),
+    Show (XNixSet p),
+    Show (NixBinding p),
+    Show (XNixLet p),
+    Show (XNixHasAttr p),
+    Show (NixAttrPath p),
+    Show (XNixSelect p),
+    Show (XNixIf p),
+    Show (XNixWith p),
+    Show (XNixAssert p),
+    Show (XXNixExpr p)
+  ) =>
+  Show (NixExpr p)
 
 type family NixIdP p
 
