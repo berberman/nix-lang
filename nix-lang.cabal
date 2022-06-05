@@ -1,0 +1,64 @@
+cabal-version:   3.0
+name:            nix-lang
+version:         0.1.0
+synopsis:        Nix language processing library
+description:     See README for details.
+category:        Nix
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          berberman
+maintainer:      berberman <berberman@yandex.com>
+copyright:       Copyright (c) berberman 2022
+stability:       alpha
+homepage:        https://github.com/berberman/nix-lang
+bug-reports:     https://github.com/berberman/nix-lang/issues
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+common common-attrs
+  build-depends:      base >=4.10 && <5
+  default-language:   Haskell2010
+  ghc-options:
+    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+
+  if impl(ghc >=8.0)
+    ghc-options: -Wredundant-constraints
+
+  if impl(ghc >=8.2)
+    ghc-options: -fhide-source-paths
+
+  default-extensions:
+    NoStarIsType
+    BangPatterns
+    ConstraintKinds
+    DataKinds
+    DeriveAnyClass
+    DeriveFunctor
+    DeriveGeneric
+    DerivingStrategies
+    DerivingVia
+    FlexibleContexts
+    FlexibleInstances
+    FunctionalDependencies
+    KindSignatures
+    LambdaCase
+    OverloadedStrings
+    RecordWildCards
+    ScopedTypeVariables
+    TupleSections
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+
+library
+  import:          common-attrs
+  build-depends:   text
+  exposed-modules: Nix.Lang.Types
+  hs-source-dirs:  src
+
+source-repository head
+  type:     git
+  location: https://github.com/berberman/nix-lang
