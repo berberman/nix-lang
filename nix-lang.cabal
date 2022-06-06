@@ -55,9 +55,30 @@ common common-attrs
 
 library
   import:          common-attrs
-  build-depends:   text
-  exposed-modules: Nix.Lang.Types
+  build-depends:
+    , megaparsec
+    , mtl
+    , text
+
+  exposed-modules:
+    Nix.Lang.Parser
+    Nix.Lang.Types
+    Nix.Lang.Utils
+
   hs-source-dirs:  src
+
+test-suite nix-lang-test
+  import:         common-attrs
+  type:           exitcode-stdio-1.0
+  build-depends:
+    , megaparsec
+    , mtl
+    , nix-lang
+    , pretty-simple
+    , text
+
+  hs-source-dirs: test
+  main-is:        Spec.hs
 
 source-repository head
   type:     git

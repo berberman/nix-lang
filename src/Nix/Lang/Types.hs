@@ -15,10 +15,116 @@ data SrcSpan = SrcSpan
     srcSpanEndLine :: Int,
     srcSpanEndColumn :: Int
   }
-  deriving (Show, Eq, Ord, Data)
+  deriving (Show, Eq, Data)
+
+instance Ord SrcSpan where
+  a `compare` b = case (srcSpanStartLine a, srcSpanStartColumn a)
+    `compare` (srcSpanStartLine b, srcSpanStartColumn b) of
+    EQ -> (srcSpanEndLine a, srcSpanEndColumn a) `compare` (srcSpanEndLine b, srcSpanEndColumn b)
+    x -> x
 
 data Located a = L SrcSpan a
   deriving (Eq, Show, Ord, Data, Functor, Foldable, Traversable)
+
+--------------------------------------------------------------------------------
+
+data Token
+  = -- | @assert@
+    TkAssert
+  | -- | @if@
+    TkIf
+  | -- | @else@
+    TkElse
+  | -- | @then@
+    TkThen
+  | -- | @let@
+    TkLet
+  | -- | @in@
+    TkIn
+  | -- | @inherit@
+    TkInherit
+  | -- | @rec@
+    TkRec
+  | -- | @with@
+    TkWith
+  | -- | @{@
+    TkOpenC
+  | -- | @}@
+    TkCloseC
+  | -- | @[@
+    TkOpenS
+  | -- | @]@
+    TkCloseS
+  | -- | @(@
+    TkOpenP
+  | -- | @)@
+    TkCloseP
+  | -- | @=@
+    TkAssign
+  | -- | @@@
+    TkAt
+  | -- | @:@
+    TkColon
+  | -- | @,@
+    TkComma
+  | -- | @.@
+    TkDot
+  | -- | @...@
+    TkEllipsis
+  | -- | @?@
+    TkQuestion
+  | -- | @;@
+    TkSemicolon
+  | -- | @++@
+    TkConcat
+  | -- | @//@
+    TkUpdate
+  | -- | @!@
+    TkExclamation
+  | -- | @+@
+    TkAdd
+  | -- | @-@
+    TkSub
+  | -- | @*@
+    TkMul
+  | -- | @/@
+    TkDiv
+  | -- | @&&@
+    TkAnd
+  | -- | @||@
+    TkOr
+  | -- | @->@
+    TkImpl
+  | -- | @==@
+    TkEqual
+  | -- | @!=@
+    TkNEqual
+  | -- | @>@
+    TkGT
+  | -- | @>=@
+    TkGE
+  | -- | @<@
+    TkLT
+  | -- | @<=@
+    TkLE
+  | -- | Identifier
+    TkId
+  | -- | Value
+    TkVal
+  | -- | @${@
+    TkInterpolOpen
+  | -- | @''@
+    TkDoubleSingleQuotes
+  | -- | @"@
+    TkSingleQuote
+  | -- | End of file
+    TkEof
+  deriving (Show, Eq, Data)
+
+data Comment
+  = BlockComment Text
+  | LineComment Text
+  deriving (Show, Eq, Data)
 
 --------------------------------------------------------------------------------
 data Ps
@@ -86,6 +192,8 @@ type instance XNixVar Ps = NoExtF
 
 type instance XNixLit Ps = NoExtF
 
+type instance XNixPar Ps = NoExtF
+
 type instance XXNixLit Ps = NoExtC
 
 type instance XNixString Ps = NoExtF
@@ -144,7 +252,7 @@ data BinaryOp
     OpLE
   | -- | @>@
     OpGT
-  | -- | @>@
+  | -- | @>=@
     OpGE
   | -- | @==@
     OpEq
@@ -212,10 +320,6 @@ type family XNixFloat p
 type family XNixBoolean p
 
 type family XNixNull p
-
-type family XNixVar p
-
-type family XNixLit p
 
 type family XXNixLit p
 
@@ -418,10 +522,17 @@ type family XNixInheritBinding p
 type family XXNixBinding p
 
 --------------------------------------------------------------------------------
+data NixSetPatAsLocation
+  = -- | @x@{...}@
+    NixSetPatAsLeading
+  | -- | @{...}@x@
+    NixSetPatAsTrailing
+  deriving (Eq, Show, Ord, Data)
+
+--------------------------------------------------------------------------------
 
 data NixSetPatAs p = NixSetPatAs
-  { -- | true: @x@{...}@, false: @{...}@x@
-    nspaIsLeading :: Bool,
+  { nspaLocation :: NixSetPatAsLocation,
     -- | @x@{...}@
     nspaVar :: LNixIdP p
   }
@@ -486,15 +597,22 @@ type family XNixSetPat p
 type family XXNixFuncPat p
 
 --------------------------------------------------------------------------------
+data NixSetIsRecursive
+  = -- | @rec {...}@
+    NixSetRecursive
+  | -- | @{...}@
+    NixSetNonRecursive
+  deriving (Show, Eq, Ord, Data)
 
--- | true: @rec {...}@, false : @{...}@
-type NixSetRecursive = Bool
+--------------------------------------------------------------------------------
 
 data NixExpr p
   = -- | @x@
     NixVar (XNixVar p) (LNixIdP p)
   | -- | See 'NixLit'
     NixLit (XNixLit p) (LNixLit p)
+  | -- | Parenthesised expr
+    NixPar (XNixPar p) (LNixExpr p)
   | -- | See 'NixString'
     NixString (XNixString p) (LNixString p)
   | -- | See 'NixPath'
@@ -514,7 +632,7 @@ data NixExpr p
   | -- | @[ a b c ]@
     NixList (XNixList p) [LNixExpr p]
   | -- | See 'NixSetRecursive' and 'LNixBinding'
-    NixSet (XNixSet p) NixSetRecursive [LNixBinding p]
+    NixSet (XNixSet p) NixSetIsRecursive [LNixBinding p]
   | -- | @let a = 1; in b@, @let inherit (a) b; in c@
     NixLet (XNixLet p) [LNixBinding p] (LNixExpr p)
   | -- | @a ? b@
@@ -535,6 +653,7 @@ deriving instance
     Data (XNixVar p),
     Data (XNixLit p),
     Data (NixLit p),
+    Data (XNixPar p),
     Data (XNixString p),
     Data (NixString p),
     Data (NixPath p),
@@ -565,6 +684,7 @@ deriving instance
     Show (XNixVar p),
     Show (XNixLit p),
     Show (NixLit p),
+    Show (XNixPar p),
     Show (XNixString p),
     Show (NixString p),
     Show (NixPath p),
@@ -629,5 +749,11 @@ type family XNixSet p
 type family XNixLet p
 
 type family XNixLam p
+
+type family XNixVar p
+
+type family XNixLit p
+
+type family XNixPar p
 
 --------------------------------------------------------------------------------
