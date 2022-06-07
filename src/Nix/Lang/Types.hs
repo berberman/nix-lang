@@ -80,7 +80,7 @@ data Token
   | -- | @//@
     TkUpdate
   | -- | @!@
-    TkExclamation
+    TkEx
   | -- | @+@
     TkAdd
   | -- | @-@
@@ -113,13 +113,21 @@ data Token
     TkVal
   | -- | @${@
     TkInterpolOpen
+  | -- | @$}@
+    TkInterpolClose
+  | -- | @<@
+    TkEnvPathOpen
+  | -- | @>@
+    TkEnvPathClose
+  | -- | @-@
+    TkNeg
   | -- | @''@
     TkDoubleSingleQuotes
   | -- | @"@
     TkSingleQuote
   | -- | End of file
     TkEof
-  deriving (Show, Eq, Data)
+  deriving (Show, Eq, Enum, Data)
 
 data Comment
   = BlockComment Text

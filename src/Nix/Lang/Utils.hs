@@ -1,6 +1,8 @@
 module Nix.Lang.Utils where
 
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Nix.Lang.Types
 
 mkSrcSpan :: String -> (Int, Int) -> (Int, Int) -> SrcSpan
@@ -56,7 +58,7 @@ showToken = \case
   TkSemicolon -> Just ";"
   TkConcat -> Just "++"
   TkUpdate -> Just "//"
-  TkExclamation -> Just "!"
+  TkEx -> Just "!"
   TkAdd -> Just "+"
   TkSub -> Just "-"
   TkMul -> Just "*"
@@ -73,4 +75,13 @@ showToken = \case
   TkId -> Nothing
   TkVal -> Nothing
   TkInterpolOpen -> Just "${"
+  TkInterpolClose -> Just "}"
+  TkEnvPathOpen -> Just "<"
+  TkEnvPathClose -> Just ">"
+  TkNeg -> Just "-"
   TkEof -> Nothing
+
+-- >>> tokenString
+-- "assertifelsethenletininheritrecwith{}[]()=@:,....?;++//!+-*/&&||->==!=>>=<<=${}<>-''\""
+tokenString :: String
+tokenString = T.unpack . T.concat . catMaybes $ showToken <$> [TkAssert ..]

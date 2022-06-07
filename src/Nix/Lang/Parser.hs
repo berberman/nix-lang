@@ -57,15 +57,16 @@ sourcePosToLoc pos = (unPos (sourceLine pos), unPos (sourceColumn pos))
 putLoc :: (Int, Int) -> Parser ()
 putLoc loc = modify' $ \ps -> ps {psLoc = loc}
 
+-- | Invariant: the use of located without consuming whitespaces must manually updateLoc
+updateLoc :: Parser ()
+updateLoc = getSourcePos >>= putLoc . sourcePosToLoc
+
 --------------------------------------------------------------------------------
 
 located' :: Bool -> Parser a -> Parser (Located a)
 located' includeWhiteSpace p = do
   start <- getSourcePos
   x <- p
-  beforeWs <- gets psLoc
-  when (beforeWs < sourcePosToLoc start) $
-    getSourcePos >>= putLoc . sourcePosToLoc
   end <-
     if not includeWhiteSpace
       then gets psLoc
@@ -77,15 +78,20 @@ located' includeWhiteSpace p = do
           end
   unless includeWhiteSpace $ do
     (l, c) <- sourcePosToLoc <$> getSourcePos
-    allocatePendingComments s {srcSpanEndLine = l, srcSpanEndColumn = c}
+    allocatePendingComments s {srcSpanEndLine = l, srcSpanEndColumn = c} s
   pure $ L s x
 
-allocatePendingComments :: SrcSpan -> Parser ()
-allocatePendingComments s = modify' $ \ps@PState {..} ->
+allocatePendingComments ::
+  -- | Span of ast extended to whitespaces
+  SrcSpan ->
+  -- | Span of ast
+  SrcSpan ->
+  Parser ()
+allocatePendingComments s s' = modify' $ \ps@PState {..} ->
   let (before, rest) = break (\(L l _) -> l `isSubspanOf` s) psPendingComments
       (middle, after) = break (\(L l _) -> not $ l `isSubspanOf` s) rest
       pending = before ++ after
-      comments = [(s, middle) | not (null middle)]
+      comments = [(s', middle) | not (null middle)]
    in ps
         { psPendingComments = pending,
           psComments = comments <> psComments
@@ -112,9 +118,7 @@ eatBlockComment = do
   addPendingComment $ BlockComment <$> c
 
 ws :: Parser ()
-ws = do
-  getSourcePos >>= putLoc . sourcePosToLoc
-  L.space space1 eatLineComment eatBlockComment
+ws = updateLoc >> L.space space1 eatLineComment eatBlockComment
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme ws
@@ -151,9 +155,9 @@ betweenToken :: Token -> Token -> Bool -> Parser a -> Parser (Located a)
 betweenToken t1 t2 includeWhitespaces p = do
   (L l (open, x, close)) <-
     located $
-      (,,) <$> located (token t1 includeWhitespaces)
+      (,,) <$> located (token t1 includeWhitespaces <* unless includeWhitespaces updateLoc)
         <*> p
-        <*> located (token t2 includeWhitespaces)
+        <*> located (token t2 includeWhitespaces <* unless includeWhitespaces updateLoc)
   addAnnotation l t1 (getLoc open)
   addAnnotation l t2 (getLoc close)
   pure $ L l x
@@ -167,21 +171,28 @@ braces = betweenToken TkOpenC TkCloseC True
 brackets :: Parser a -> Parser (Located a)
 brackets = betweenToken TkOpenS TkCloseS True
 
-angles :: Parser a -> Parser (Located a)
-angles = betweenToken TkLT TkGT False
-
 antiquote :: Parser a -> Parser (Located a)
 antiquote = betweenToken TkInterpolOpen TkCloseC False
 
+legalReserved :: Parser ()
+legalReserved = lookAhead $
+  void $
+    satisfy $ \x -> isSpace x || (x `notElem` T.unpack (T.concat reservedNames) && x `elem` tokenString)
+
 --------------------------------------------------------------------------------
 
-float :: Parser (NixExpr Ps)
-float = do
+litNull :: Parser (NixExpr Ps)
+litNull = do
+  (L l _) <- annVal $ located $ lexeme $ symbol' "null" <* legalReserved
+  pure $ NixLit NoExtF $ L l $ NixNull NoExtF
+
+litFloat :: Parser (NixExpr Ps)
+litFloat = do
   (L l f) <- annVal $ located $ lexeme L.float
   pure $ NixLit NoExtF $ L l $ NixFloat NoExtF f
 
-integer :: Parser (NixExpr Ps)
-integer = do
+litInteger :: Parser (NixExpr Ps)
+litInteger = do
   (L l f) <- annVal $ located $ lexeme L.decimal
   addAnnotation l TkVal l
   pure $ NixLit NoExtF $ L l $ NixInteger NoExtF f
@@ -194,7 +205,7 @@ envPath :: Parser (NixExpr Ps)
 envPath =
   lexeme $
     fmap (NixEnvPath NoExtF) $
-      angles $ do
+      betweenToken TkEnvPathOpen TkEnvPathClose False $ do
         lookAhead (satisfy (/= '/')) >> T.pack <$> many (satisfy isPathChar <|> slash)
 
 --------------------------------------------------------------------------------

@@ -7,7 +7,7 @@ import Text.Megaparsec
 import Text.Pretty.Simple (pPrint)
 
 main :: IO ()
-main = test $ many envPath
+main = test litNull
 
 test :: (Show a) => Parser a -> IO ()
 test parser =
