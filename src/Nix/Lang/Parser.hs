@@ -256,7 +256,7 @@ escapedChar = choice [char code >> pure r | (code, r) <- escapedChars]
 mergeStringPartLiteral :: [LNixStringPart Ps] -> [LNixStringPart Ps]
 mergeStringPartLiteral [] = []
 mergeStringPartLiteral (L l1 (NixStringLiteral _ t1) : L l2 (NixStringLiteral _ t2) : xs) =
-  L (l1 `combineSrcSpans` l2) (NixStringLiteral NoExtF $ t1 <> t2) : xs
+  mergeStringPartLiteral $ L (l1 `combineSrcSpans` l2) (NixStringLiteral NoExtF $ t1 <> t2) : xs
 mergeStringPartLiteral (x : xs) = x : mergeStringPartLiteral xs
 
 nixStringPartLiteral :: Char -> Char -> Parser (NixStringPart Ps) -> Parser (NixStringPart Ps)
@@ -268,17 +268,31 @@ nixStringPartLiteral end escapeStart escape =
 nixStringPartInterpol :: Parser (NixStringPart Ps)
 nixStringPartInterpol = NixStringInterpol NoExtF <$> antiquote nixExpr
 
+stringSourceText :: Char -> Char -> Char -> Parser SourceText
+stringSourceText start end escapeStart =
+  lookAhead $
+    between (char start) (char end) $
+      fmap (SourceText . T.concat) $
+        many $
+          fmap T.pack $
+            ( (\a b -> [a, b])
+                <$> char escapeStart <*> oneOf (fmap fst escapedChars)
+            )
+              <|> pure
+              <$> noneOf [escapeStart, end]
+
 doubleQuotesString :: Parser (NixExpr Ps)
-doubleQuotesString =
-  fmap (NixString NoExtF) $
-    betweenToken TkDoubleQuote TkDoubleQuote False $
-      fmap (NixDoubleQuotesString NoExtF . mergeStringPartLiteral) $
-        many $ located $ (nixStringPartInterpol <|> nixStringPartLiteral '\"' '\\' escape) <* updateLoc
+doubleQuotesString = stringSourceText '\"' '\"' '\\' >>= expr
   where
     escape = NixStringLiteral NoExtF . T.singleton <$> (char '\\' >> escapedChar)
+    parts = many (located $ (nixStringPartInterpol <|> nixStringPartLiteral '\"' '\\' escape) <* updateLoc)
+    lit src = fmap (NixDoubleQuotesString src . mergeStringPartLiteral) parts
+    expr src = fmap (NixString NoExtF) $ betweenToken TkDoubleQuote TkDoubleQuote False $ lit src
 
 nixString :: Parser (NixExpr Ps)
 nixString = collectComment $ lexeme doubleQuotesString
+
+--------------------------------------------------------------------------------
 
 nixExpr :: Parser (NixExpr Ps)
 nixExpr = litInteger

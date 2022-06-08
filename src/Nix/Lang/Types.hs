@@ -137,6 +137,9 @@ data Comment
 --------------------------------------------------------------------------------
 data Ps
 
+newtype SourceText = SourceText Text
+  deriving (Eq, Show, Ord, Data)
+
 data NoExtF = NoExtF
   deriving (Eq, Show, Data)
 
@@ -164,21 +167,21 @@ type instance XNixStringInterpol Ps = NoExtF
 
 type instance XXNixStringPart Ps = NoExtC
 
-type instance XNixDoubleQuotesString Ps = NoExtF
+type instance XNixDoubleQuotesString Ps = SourceText
 
-type instance XNixDoubleSingleQuotesString Ps = NoExtF
+type instance XNixDoubleSingleQuotesString Ps = SourceText
 
 type instance XXNixString Ps = NoExtC
 
 type instance XNixLiteralPath Ps = NoExtF
 
-type instance XNixInterpolPath Ps = NoExtF
+type instance XNixInterpolPath Ps = SourceText
 
 type instance XXNixPath Ps = NoExtC
 
 type instance XNixStaticAttrKey Ps = NoExtF
 
-type instance XNixDynamicStringAttrKey Ps = NoExtF
+type instance XNixDynamicStringAttrKey Ps = SourceText
 
 type instance XNixDynamicInterpolAttrKey Ps = NoExtF
 
