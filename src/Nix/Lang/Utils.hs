@@ -23,6 +23,19 @@ isSubspanOf src parent
     (srcSpanStartLine parent, srcSpanStartColumn parent) <= (srcSpanStartLine src, srcSpanStartColumn src)
       && (srcSpanEndLine parent, srcSpanEndLine parent) >= (srcSpanEndLine src, srcSpanEndLine src)
 
+combineSrcSpans :: SrcSpan -> SrcSpan -> SrcSpan
+combineSrcSpans span1 span2 = SrcSpan f sl sc el ec
+  where
+    (sl, sc) =
+      min
+        (srcSpanStartLine span1, srcSpanStartColumn span1)
+        (srcSpanStartLine span2, srcSpanStartColumn span2)
+    (el, ec) =
+      max
+        (srcSpanEndLine span1, srcSpanEndColumn span1)
+        (srcSpanEndLine span2, srcSpanEndColumn span2)
+    f = srcSpanFilename span1
+
 unLoc :: Located a -> a
 unLoc (L _ x) = x
 
@@ -32,7 +45,7 @@ getLoc (L s _) = s
 showToken :: Token -> Maybe Text
 showToken = \case
   TkDoubleSingleQuotes -> Just "''"
-  TkSingleQuote -> Just "\""
+  TkDoubleQuote -> Just "\""
   TkAssert -> Just "assert"
   TkIf -> Just "if"
   TkElse -> Just "else"

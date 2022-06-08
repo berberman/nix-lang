@@ -1,13 +1,13 @@
 module Main (main) where
 
-import Control.Monad.State.Strict
+import Control.Monad.State.Strict ( runState )
 import qualified Data.Text.IO as T
 import Nix.Lang.Parser
 import Text.Megaparsec
 import Text.Pretty.Simple (pPrint)
 
 main :: IO ()
-main = test litNull
+main = test nixString
 
 test :: (Show a) => Parser a -> IO ()
 test parser =

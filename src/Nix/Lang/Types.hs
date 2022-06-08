@@ -124,7 +124,7 @@ data Token
   | -- | @''@
     TkDoubleSingleQuotes
   | -- | @"@
-    TkSingleQuote
+    TkDoubleQuote
   | -- | End of file
     TkEof
   deriving (Show, Eq, Enum, Data)
@@ -335,6 +335,9 @@ type family XXNixLit p
 
 data NixStringPart p
   = -- | @x@
+    -- As there is no annotation attached to this node, the location of 'Text'
+    -- should be the same as the parent node; thus 'Text' doesn't need to have location
+    -- information
     NixStringLiteral (XNixStringLiteral p) Text
   | -- | @${e}@, where e is a string
     NixStringInterpol (XNixStringInterpol p) (LNixExpr p)
@@ -442,6 +445,7 @@ data NixAttrKey p
   = -- | @{ x = 123; }.x@
     NixStaticAttrKey (XNixStaticAttrKey p) (LNixIdP p)
   | -- | @{ x = 123; }."x"@, @{ x = 123; }."${"x"}"@
+    -- Only double quoted strings are allowed
     NixDynamicStringAttrKey (XNixDynamicStringAttrKey p) [LNixStringPart p]
   | -- | @{ x = 123; }.${"x"}@
     NixDynamicInterpolAttrKey (XNixDynamicInterpolAttrKey p) (LNixExpr p)
