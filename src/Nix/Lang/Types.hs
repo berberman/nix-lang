@@ -28,105 +28,105 @@ data Located a = L SrcSpan a
 
 --------------------------------------------------------------------------------
 
-data Token
+data Ann
   = -- | @assert@
-    TkAssert
+    AnnAssert
   | -- | @if@
-    TkIf
+    AnnIf
   | -- | @else@
-    TkElse
+    AnnElse
   | -- | @then@
-    TkThen
+    AnnThen
   | -- | @let@
-    TkLet
+    AnnLet
   | -- | @in@
-    TkIn
+    AnnIn
   | -- | @inherit@
-    TkInherit
+    AnnInherit
   | -- | @rec@
-    TkRec
+    AnnRec
   | -- | @with@
-    TkWith
+    AnnWith
   | -- | @{@
-    TkOpenC
+    AnnOpenC
   | -- | @}@
-    TkCloseC
+    AnnCloseC
   | -- | @[@
-    TkOpenS
+    AnnOpenS
   | -- | @]@
-    TkCloseS
+    AnnCloseS
   | -- | @(@
-    TkOpenP
+    AnnOpenP
   | -- | @)@
-    TkCloseP
+    AnnCloseP
   | -- | @=@
-    TkAssign
+    AnnAssign
   | -- | @@@
-    TkAt
+    AnnAt
   | -- | @:@
-    TkColon
+    AnnColon
   | -- | @,@
-    TkComma
+    AnnComma
   | -- | @.@
-    TkDot
+    AnnDot
   | -- | @...@
-    TkEllipsis
+    AnnEllipsis
   | -- | @?@
-    TkQuestion
+    AnnQuestion
   | -- | @;@
-    TkSemicolon
+    AnnSemicolon
   | -- | @++@
-    TkConcat
+    AnnConcat
   | -- | @//@
-    TkUpdate
+    AnnUpdate
   | -- | @!@
-    TkEx
+    AnnEx
   | -- | @+@
-    TkAdd
+    AnnAdd
   | -- | @-@
-    TkSub
+    AnnSub
   | -- | @*@
-    TkMul
+    AnnMul
   | -- | @/@
-    TkDiv
+    AnnDiv
   | -- | @&&@
-    TkAnd
+    AnnAnd
   | -- | @||@
-    TkOr
+    AnnOr
   | -- | @->@
-    TkImpl
+    AnnImpl
   | -- | @==@
-    TkEqual
+    AnnEqual
   | -- | @!=@
-    TkNEqual
+    AnnNEqual
   | -- | @>@
-    TkGT
+    AnnGT
   | -- | @>=@
-    TkGE
+    AnnGE
   | -- | @<@
-    TkLT
+    AnnLT
   | -- | @<=@
-    TkLE
+    AnnLE
   | -- | Identifier
-    TkId
+    AnnId
   | -- | Value
-    TkVal
+    AnnVal
   | -- | @${@
-    TkInterpolOpen
+    AnnInterpolOpen
   | -- | @$}@
-    TkInterpolClose
+    AnnInterpolClose
   | -- | @<@
-    TkEnvPathOpen
+    AnnEnvPathOpen
   | -- | @>@
-    TkEnvPathClose
+    AnnEnvPathClose
   | -- | @-@
-    TkNeg
+    AnnNeg
   | -- | @''@
-    TkDoubleSingleQuotes
+    AnnDoubleSingleQuotes
   | -- | @"@
-    TkDoubleQuote
+    AnnDoubleQuote
   | -- | End of file
-    TkEof
+    AnnEof
   deriving (Show, Eq, Enum, Data)
 
 data Comment
@@ -382,7 +382,9 @@ data NixString p
     --    d
     -- ''
     -- @
-    NixDoubleSingleQuotesString (XNixDoubleSingleQuotesString p) Int [LNixStringPart p]
+    -- In order to keep original source location correct, the parser won't strip
+    -- common minimum indentation and do further processing.
+    NixDoubleSingleQuotesString (XNixDoubleSingleQuotesString p) [LNixStringPart p]
   | XNixString !(XXNixString p)
 
 deriving instance

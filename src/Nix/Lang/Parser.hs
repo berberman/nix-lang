@@ -21,7 +21,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 data PState = PState
   { psPendingComments :: [Located Comment],
     psComments :: [(SrcSpan, [Located Comment])],
-    psAnnotation :: [(SrcSpan, Token, SrcSpan)],
+    psAnnotation :: [(SrcSpan, Ann, SrcSpan)],
     psLoc :: (Int, Int)
   }
   deriving (Show, Eq, Data)
@@ -34,7 +34,7 @@ addAnnotation ::
   -- | Smallest AST the annotation belongs to
   SrcSpan ->
   -- | Annotation
-  Token ->
+  Ann ->
   -- | Span of the annotation
   SrcSpan ->
   Parser ()
@@ -133,7 +133,7 @@ symbol = L.symbol ws
 symbol' :: Text -> Parser Text
 symbol' = string
 
-token :: Token -> Bool -> Parser Text
+token :: Ann -> Bool -> Parser Text
 token tk includeWhitespaces = (if includeWhitespaces then symbol else symbol') $ fromJust $ showToken tk
 
 reservedNames :: [Text]
@@ -147,7 +147,7 @@ isPathChar x = isAlpha x || isDigit x || x `elem` ['.', '_', '-', '+', '~']
 
 --------------------------------------------------------------------------------
 
-annSingle :: Token -> Parser (Located a) -> Parser (Located a)
+annSingle :: Ann -> Parser (Located a) -> Parser (Located a)
 annSingle tk p = do
   x <- p
   let l = getLoc x
@@ -155,12 +155,12 @@ annSingle tk p = do
   pure x
 
 annVal :: Parser (Located a) -> Parser (Located a)
-annVal = annSingle TkVal
+annVal = annSingle AnnVal
 
 annId :: Parser (Located a) -> Parser (Located a)
-annId = annSingle TkId
+annId = annSingle AnnId
 
-betweenToken :: Token -> Token -> Bool -> Parser a -> Parser (Located a)
+betweenToken :: Ann -> Ann -> Bool -> Parser a -> Parser (Located a)
 betweenToken t1 t2 includeWhitespaces p = do
   (L l (open, x, close)) <-
     located $
@@ -172,16 +172,16 @@ betweenToken t1 t2 includeWhitespaces p = do
   pure $ L l x
 
 parnes :: Parser a -> Parser (Located a)
-parnes = betweenToken TkOpenP TkCloseP True
+parnes = betweenToken AnnOpenP AnnCloseP True
 
 braces :: Parser a -> Parser (Located a)
-braces = betweenToken TkOpenC TkCloseC True
+braces = betweenToken AnnOpenC AnnCloseC True
 
 brackets :: Parser a -> Parser (Located a)
-brackets = betweenToken TkOpenS TkCloseS True
+brackets = betweenToken AnnOpenS AnnCloseS True
 
 antiquote :: Parser a -> Parser (Located a)
-antiquote = betweenToken TkInterpolOpen TkInterpolClose False
+antiquote = betweenToken AnnInterpolOpen AnnInterpolClose False
 
 legalReserved :: Parser ()
 legalReserved = lookAhead $
@@ -224,7 +224,7 @@ envPath =
   collectComment $
     lexeme $
       fmap (NixEnvPath NoExtF) $
-        betweenToken TkEnvPathOpen TkEnvPathClose False $ do
+        betweenToken AnnEnvPathOpen AnnEnvPathClose False $ do
           lookAhead (satisfy (/= '/')) >> T.pack <$> many (satisfy isPathChar <|> slash)
 
 --------------------------------------------------------------------------------
@@ -259,35 +259,35 @@ mergeStringPartLiteral (L l1 (NixStringLiteral _ t1) : L l2 (NixStringLiteral _ 
   mergeStringPartLiteral $ L (l1 `combineSrcSpans` l2) (NixStringLiteral NoExtF $ t1 <> t2) : xs
 mergeStringPartLiteral (x : xs) = x : mergeStringPartLiteral xs
 
-nixStringPartLiteral :: Char -> Char -> Parser (NixStringPart Ps) -> Parser (NixStringPart Ps)
+nixStringPartLiteral :: Parser Text -> Parser Text -> Parser (NixStringPart Ps) -> Parser (NixStringPart Ps)
 nixStringPartLiteral end escapeStart escape =
   (NixStringLiteral NoExtF . T.singleton <$> char '$')
     <|> escape
-    <|> (NixStringLiteral NoExtF . T.pack <$> some (notFollowedBy (char end <|> char '$' <|> char escapeStart) >> anySingle))
+    <|> (NixStringLiteral NoExtF . T.pack <$> some (notFollowedBy (void end <|> void (char '$') <|> void escapeStart) >> anySingle))
 
 nixStringPartInterpol :: Parser (NixStringPart Ps)
 nixStringPartInterpol = NixStringInterpol NoExtF <$> antiquote nixExpr
 
-stringSourceText :: Char -> Char -> Char -> Parser SourceText
+-- | Get source text without consuming it
+stringSourceText :: Parser Text -> Parser Text -> Parser Text -> Parser SourceText
 stringSourceText start end escapeStart =
   lookAhead $
-    between (char start) (char end) $
+    between start end $
       fmap (SourceText . T.concat) $
         many $
-          fmap T.pack $
-            ( (\a b -> [a, b])
-                <$> char escapeStart <*> oneOf (fmap fst escapedChars)
-            )
-              <|> pure
-              <$> noneOf [escapeStart, end]
+          ( (\a b -> a <> T.singleton b)
+              <$> escapeStart <*> oneOf (fmap fst escapedChars)
+          )
+            <|> T.singleton <$> (notFollowedBy (end <|> escapeStart) >> anySingle)
 
 doubleQuotesString :: Parser (NixExpr Ps)
-doubleQuotesString = stringSourceText '\"' '\"' '\\' >>= expr
+doubleQuotesString = stringSourceText (string "\"") (string "\"") (string "\\") >>= expr
   where
     escape = NixStringLiteral NoExtF . T.singleton <$> (char '\\' >> escapedChar)
-    parts = many (located $ (nixStringPartInterpol <|> nixStringPartLiteral '\"' '\\' escape) <* updateLoc)
+    -- can escape following ${, so we try to consume $$ first
+    parts = many (located $ ((NixStringLiteral NoExtF <$> string "$$") <|> nixStringPartInterpol <|> nixStringPartLiteral "\"" "\\" escape) <* updateLoc)
     lit src = fmap (NixDoubleQuotesString src . mergeStringPartLiteral) parts
-    expr src = fmap (NixString NoExtF) $ betweenToken TkDoubleQuote TkDoubleQuote False $ lit src
+    expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleQuote AnnDoubleQuote False $ lit src
 
 nixString :: Parser (NixExpr Ps)
 nixString = collectComment $ lexeme doubleQuotesString
