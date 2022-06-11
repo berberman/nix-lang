@@ -57,7 +57,7 @@ sourcePosToLoc pos = (unPos (sourceLine pos), unPos (sourceColumn pos))
 putLoc :: (Int, Int) -> Parser ()
 putLoc loc = modify' $ \ps -> ps {psLoc = loc}
 
--- | Invariant: the use of located without consuming whitespaces must manually updateLoc
+-- | Invariant: the use of located without consuming whitespace must manually updateLoc
 updateLoc :: Parser ()
 updateLoc = getSourcePos >>= putLoc . sourcePosToLoc
 
@@ -85,7 +85,7 @@ located' includeWhiteSpace p = do
   pure $ L s x
 
 allocatePendingComments ::
-  -- | Span of ast extended to whitespaces
+  -- | Span of ast extended to whitespace
   SrcSpan ->
   -- | Span of ast
   SrcSpan ->
@@ -129,12 +129,12 @@ lexeme = L.lexeme ws
 symbol :: Text -> Parser Text
 symbol = L.symbol ws
 
--- | Not including whitespaces
+-- | Not including whitespace
 symbol' :: Text -> Parser Text
 symbol' = string
 
 token :: Ann -> Bool -> Parser Text
-token tk includeWhitespaces = (if includeWhitespaces then symbol else symbol') $ fromJust $ showToken tk
+token tk includeWhitespace = (if includeWhitespace then symbol else symbol') $ fromJust $ showToken tk
 
 reservedNames :: [Text]
 reservedNames = ["rec", "let", "in", "with", "inherit", "assert", "if", "then", "else"]
@@ -161,18 +161,15 @@ annId :: Parser (Located a) -> Parser (Located a)
 annId = annSingle AnnId
 
 betweenToken :: Ann -> Ann -> Bool -> Parser a -> Parser (Located a)
-betweenToken t1 t2 includeWhitespaces p = do
+betweenToken t1 t2 includeWhitespace p = do
   (L l (open, x, close)) <-
     located $
-      (,,) <$> located (token t1 includeWhitespaces <* unless includeWhitespaces updateLoc)
+      (,,) <$> located (token t1 includeWhitespace <* unless includeWhitespace updateLoc)
         <*> p
-        <*> located (token t2 includeWhitespaces <* unless includeWhitespaces updateLoc)
+        <*> located (token t2 includeWhitespace <* unless includeWhitespace updateLoc)
   addAnnotation l t1 (getLoc open)
   addAnnotation l t2 (getLoc close)
   pure $ L l x
-
-parnes :: Parser a -> Parser (Located a)
-parnes = betweenToken AnnOpenP AnnCloseP True
 
 braces :: Parser a -> Parser (Located a)
 braces = betweenToken AnnOpenC AnnCloseC True
@@ -240,6 +237,7 @@ ident = fmap (NixVar NoExtF) $
         pure x
 
 --------------------------------------------------------------------------------
+
 escapedChars :: [(Char, Char)]
 escapedChars =
   [ ('n', '\n'),
@@ -247,7 +245,8 @@ escapedChars =
     ('r', '\r'),
     ('\\', '\\'),
     ('$', '$'),
-    ('"', '"')
+    ('"', '"'),
+    ('\'', '\'')
   ]
 
 escapedChar :: Parser Char
@@ -275,22 +274,44 @@ stringSourceText start end escapeStart =
     between start end $
       fmap (SourceText . T.concat) $
         many $
-          ( (\a b -> a <> T.singleton b)
-              <$> escapeStart <*> oneOf (fmap fst escapedChars)
-          )
+          try
+            ( (\a b -> a <> T.singleton b)
+                <$> escapeStart <*> oneOf (fmap fst escapedChars)
+            )
             <|> T.singleton <$> (notFollowedBy (end <|> escapeStart) >> anySingle)
 
 doubleQuotesString :: Parser (NixExpr Ps)
 doubleQuotesString = stringSourceText (string "\"") (string "\"") (string "\\") >>= expr
   where
     escape = NixStringLiteral NoExtF . T.singleton <$> (char '\\' >> escapedChar)
-    -- can escape following ${, so we try to consume $$ first
+    -- @$${@ does not indicate an interpolation, so we try to consume $$ first
     parts = many (located $ ((NixStringLiteral NoExtF <$> string "$$") <|> nixStringPartInterpol <|> nixStringPartLiteral "\"" "\\" escape) <* updateLoc)
     lit src = fmap (NixDoubleQuotesString src . mergeStringPartLiteral) parts
     expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleQuote AnnDoubleQuote False $ lit src
 
+doubleSingleQuotesString :: Parser (NixExpr Ps)
+doubleSingleQuotesString = stringSourceText (string "''") (string "''") (string "''") >>= expr
+  where
+    escape =
+      try $
+        NixStringLiteral NoExtF
+          <$> ( string "''"
+                  >> ( (char '\'' >> pure "''")
+                         <|> (T.singleton <$> escapedChar)
+                     )
+              )
+    -- @$${@ does not indicate an interpolation, so we try to consume $$ first
+    parts = many (located $ ((NixStringLiteral NoExtF <$> string "$$") <|> nixStringPartInterpol <|> nixStringPartLiteral "''" "''" escape) <* updateLoc)
+    lit src = fmap (NixDoubleSingleQuotesString src . mergeStringPartLiteral) parts
+    expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleSingleQuotes AnnDoubleSingleQuotes False $ lit src
+
 nixString :: Parser (NixExpr Ps)
-nixString = collectComment $ lexeme doubleQuotesString
+nixString = collectComment $ lexeme $ doubleQuotesString <|> doubleSingleQuotesString
+
+--------------------------------------------------------------------------------
+
+nixPar :: Parser (NixExpr Ps)
+nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True nixExpr
 
 --------------------------------------------------------------------------------
 

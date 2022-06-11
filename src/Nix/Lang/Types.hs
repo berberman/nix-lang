@@ -628,7 +628,7 @@ data NixExpr p
     NixVar (XNixVar p) (LNixIdP p)
   | -- | See 'NixLit'
     NixLit (XNixLit p) (LNixLit p)
-  | -- | Parenthesised expr
+  | -- | Parenthesized expr
     NixPar (XNixPar p) (LNixExpr p)
   | -- | See 'NixString'
     NixString (XNixString p) (LNixString p)
