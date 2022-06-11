@@ -7,7 +7,7 @@ import Text.Megaparsec
 import Text.Pretty.Simple (pPrint)
 
 main :: IO ()
-main = test nixString
+main = test nixPath
 
 test :: (Show a) => Parser a -> IO ()
 test parser =

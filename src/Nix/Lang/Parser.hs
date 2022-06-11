@@ -224,6 +224,32 @@ envPath =
         betweenToken AnnEnvPathOpen AnnEnvPathClose False $ do
           lookAhead (satisfy (/= '/')) >> T.pack <$> many (satisfy isPathChar <|> slash)
 
+literalPath :: Parser (NixExpr Ps)
+literalPath =
+  fmap (NixPath NoExtF) $
+    located $
+      NixLiteralPath NoExtF
+        <$> ( do
+                u <- takeWhileP (Just "path") isPathChar
+                r <- some (T.cons <$> slash <*> takeWhile1P (Just "path") isPathChar)
+                pure $ T.concat $ u : r
+            )
+          <* updateLoc
+
+interpolPath :: Parser (NixExpr Ps)
+interpolPath =
+  -- TODO: the entire input got copied here
+  (,,) <$> getInput <*> getOffset <*> located path >>= \(i, o, L l p) -> do
+    delta <- (\o' -> o' - o) <$> getOffset
+    pure $ NixPath NoExtF $ L l $ NixInterpolPath (SourceText $ T.take delta i) p
+  where
+    lit = located $ NixStringLiteral NoExtF . T.pack <$> some (notFollowedBy (char '$') >> satisfy isPathChar <|> slash) <* updateLoc
+    interpol = located nixStringPartInterpol
+    path = many (lit <|> interpol)
+
+nixPath :: Parser (NixExpr Ps)
+nixPath = collectComment $ lexeme $ try literalPath <|> interpolPath
+
 --------------------------------------------------------------------------------
 ident :: Parser (NixExpr Ps)
 ident = fmap (NixVar NoExtF) $
@@ -314,6 +340,9 @@ nixPar :: Parser (NixExpr Ps)
 nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True nixExpr
 
 --------------------------------------------------------------------------------
+
+nixTerm :: Parser (NixExpr Ps)
+nixTerm = undefined
 
 nixExpr :: Parser (NixExpr Ps)
 nixExpr = litInteger
