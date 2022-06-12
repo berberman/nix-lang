@@ -328,7 +328,7 @@ nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True nixExpr
 --------------------------------------------------------------------------------
 
 dot :: Parser Text
-dot = token AnnDot False <* notFollowedBy nixPath
+dot = lexeme $ token AnnDot False <* notFollowedBy nixPath
 
 attrKey :: Parser (NixAttrKey Ps)
 attrKey = dynamicString <|> dynamicInterpol <|> static
