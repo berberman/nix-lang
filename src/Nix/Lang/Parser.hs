@@ -6,7 +6,7 @@ module Nix.Lang.Parser where
 import Control.Monad.State.Strict
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.Data (Data)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -147,19 +147,6 @@ isPathChar x = isAlpha x || isDigit x || x `elem` ['.', '_', '-', '+', '~']
 
 --------------------------------------------------------------------------------
 
-annSingle :: Ann -> Parser (Located a) -> Parser (Located a)
-annSingle tk p = do
-  x <- p
-  let l = getLoc x
-  addAnnotation l tk l
-  pure x
-
-annVal :: Parser (Located a) -> Parser (Located a)
-annVal = annSingle AnnVal
-
-annId :: Parser (Located a) -> Parser (Located a)
-annId = annSingle AnnId
-
 betweenToken :: Ann -> Ann -> Bool -> Parser a -> Parser (Located a)
 betweenToken t1 t2 includeWhitespace p = do
   (L l (open, x, close)) <-
@@ -177,8 +164,8 @@ braces = betweenToken AnnOpenC AnnCloseC True
 brackets :: Parser a -> Parser (Located a)
 brackets = betweenToken AnnOpenS AnnCloseS True
 
-antiquote :: Parser a -> Parser (Located a)
-antiquote = betweenToken AnnInterpolOpen AnnInterpolClose False
+antiquote :: Bool -> Parser a -> Parser (Located a)
+antiquote = betweenToken AnnInterpolOpen AnnInterpolClose
 
 legalReserved :: Parser ()
 legalReserved = lookAhead $
@@ -191,25 +178,25 @@ litBoolean :: Parser (NixExpr Ps)
 litBoolean = litTrue <|> litFalse
   where
     litTrue = do
-      (L l _) <- annVal $ located $ lexeme $ symbol' "true" <* legalReserved
+      (L l _) <- located $ lexeme $ symbol' "true" <* legalReserved
       pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF True
     litFalse = do
-      (L l _) <- annVal $ located $ lexeme $ symbol' "false" <* legalReserved
+      (L l _) <- located $ lexeme $ symbol' "false" <* legalReserved
       pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF False
 
 litNull :: Parser (NixExpr Ps)
 litNull = do
-  (L l _) <- annVal $ located $ lexeme $ symbol' "null" <* legalReserved
+  (L l _) <- located $ lexeme $ symbol' "null" <* legalReserved
   pure $ NixLit NoExtF $ L l $ NixNull NoExtF
 
 litFloat :: Parser (NixExpr Ps)
 litFloat = do
-  (L l f) <- annVal $ located $ lexeme L.float
+  (L l f) <- located $ lexeme L.float
   pure $ NixLit NoExtF $ L l $ NixFloat NoExtF f
 
 litInteger :: Parser (NixExpr Ps)
 litInteger = do
-  (L l f) <- annVal $ located $ lexeme L.decimal
+  (L l f) <- located $ lexeme L.decimal
   pure $ NixLit NoExtF $ L l $ NixInteger NoExtF f
 
 --------------------------------------------------------------------------------
@@ -241,26 +228,25 @@ interpolPath =
   -- TODO: the entire input got copied here
   (,,) <$> getInput <*> getOffset <*> located path >>= \(i, o, L l p) -> do
     delta <- (\o' -> o' - o) <$> getOffset
-    pure $ NixPath NoExtF $ L l $ NixInterpolPath (SourceText $ T.take delta i) p
+    pure $ NixPath NoExtF $ L l $ NixInterpolPath (SourceText $ T.take delta i) $ mergeStringPartLiteral p
   where
-    lit = located $ NixStringLiteral NoExtF . T.pack <$> some (notFollowedBy (char '$') >> satisfy isPathChar <|> slash) <* updateLoc
+    mkList a b = [a, b]
+    lit = located $ NixStringLiteral NoExtF . T.pack <$> some (notFollowedBy (char '$') >> satisfy isPathChar) <* updateLoc
+    slash' = located $ NixStringLiteral NoExtF . T.singleton <$> slash <* updateLoc
     interpol = located nixStringPartInterpol
-    path = many (lit <|> interpol)
+    path = (<>) <$> (maybeToList <$> optional (lit <|> interpol)) <*> (concat <$> some (mkList <$> slash' <*> (lit <|> interpol)))
 
 nixPath :: Parser (NixExpr Ps)
 nixPath = collectComment $ lexeme $ try literalPath <|> interpolPath
 
 --------------------------------------------------------------------------------
-ident :: Parser (NixExpr Ps)
-ident = fmap (NixVar NoExtF) $
-  annId $
-    located $
-      lexeme $ do
-        _ <- lookAhead (satisfy (\x -> isAlpha x || x == '_'))
-        x <- takeWhile1P (Just "ident") isIdentChar
-        when (x `elem` reservedNames) $
-          fail $ T.unpack x <> " is a reserved name"
-        pure x
+ident :: Parser Text
+ident = lexeme $ do
+  _ <- lookAhead (satisfy (\x -> isAlpha x || x == '_'))
+  x <- takeWhile1P (Just "ident") isIdentChar
+  when (x `elem` reservedNames) $
+    fail $ T.unpack x <> " is a reserved name"
+  pure x
 
 --------------------------------------------------------------------------------
 
@@ -291,7 +277,7 @@ nixStringPartLiteral end escapeStart escape =
     <|> (NixStringLiteral NoExtF . T.pack <$> some (notFollowedBy (void end <|> void (char '$') <|> void escapeStart) >> anySingle))
 
 nixStringPartInterpol :: Parser (NixStringPart Ps)
-nixStringPartInterpol = NixStringInterpol NoExtF <$> antiquote nixExpr
+nixStringPartInterpol = NixStringInterpol NoExtF <$> antiquote False nixExpr
 
 -- | Get source text without consuming it
 stringSourceText :: Parser Text -> Parser Text -> Parser Text -> Parser SourceText
@@ -338,6 +324,36 @@ nixString = collectComment $ lexeme $ doubleQuotesString <|> doubleSingleQuotesS
 
 nixPar :: Parser (NixExpr Ps)
 nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True nixExpr
+
+--------------------------------------------------------------------------------
+
+dot :: Parser Text
+dot = token AnnDot False <* notFollowedBy nixPath
+
+attrKey :: Parser (NixAttrKey Ps)
+attrKey = dynamicString <|> dynamicInterpol <|> static
+  where
+    static = NixStaticAttrKey NoExtF <$> located ident
+    dynamicString =
+      lexeme doubleQuotesString >>= \case
+        (NixString _ (L _ (NixDoubleQuotesString src x))) -> pure $ NixDynamicStringAttrKey src x
+        _ -> fail "Impossible"
+    dynamicInterpol =
+      stringSourceText "${" "}" empty >>= \src ->
+        NixDynamicInterpolAttrKey src
+          <$> antiquote True nixExpr
+
+attrPath :: Parser (NixAttrPath Ps)
+attrPath =
+  located
+    ( do
+        h <- located attrKey
+        (rd, ra) <- fmap unzip $ many $ (,) <$> located dot <*> located attrKey
+        pure (fmap getLoc rd, h : ra)
+    )
+    >>= \(L l (ld, a)) -> do
+      forM_ ld $ addAnnotation l AnnDot
+      pure $ NixAttrPath a
 
 --------------------------------------------------------------------------------
 

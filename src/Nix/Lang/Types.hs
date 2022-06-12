@@ -183,7 +183,7 @@ type instance XNixStaticAttrKey Ps = NoExtF
 
 type instance XNixDynamicStringAttrKey Ps = SourceText
 
-type instance XNixDynamicInterpolAttrKey Ps = NoExtF
+type instance XNixDynamicInterpolAttrKey Ps = SourceText
 
 type instance XXNixAttrKey Ps = NoExtC
 
@@ -575,7 +575,11 @@ type LNixSetPatBinding p = Located (NixSetPatBinding p)
 
 --------------------------------------------------------------------------------
 
-type NixSetPatEllipses = Bool
+-- | Whether the pattern accepts unknown arguments
+data NixSetPatEllipses
+  = NixSetPatIsEllipses
+  | NixSetPatNotEllipses
+  deriving (Show, Eq, Ord, Data)
 
 data NixFuncPat p
   = -- | @x: ...@
@@ -655,7 +659,7 @@ data NixExpr p
   | -- | @a ? b@
     NixHasAttr (XNixHasAttr p) (LNixExpr p) (LNixAttrPath p)
   | -- | See 'NixAttrPath'
-    NixSelect (XNixSelect p) (Maybe (NixExpr p)) (LNixExpr p) (LNixAttrPath p)
+    NixSelect (XNixSelect p) (Maybe (LNixExpr p)) (LNixExpr p) (LNixAttrPath p)
   | -- | @if a then b else c@
     NixIf (XNixIf p) (LNixExpr p) (LNixExpr p) (LNixExpr p)
   | -- | @with a; b@
