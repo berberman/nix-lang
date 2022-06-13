@@ -15,7 +15,18 @@ data SrcSpan = SrcSpan
     srcSpanEndLine :: Int,
     srcSpanEndColumn :: Int
   }
-  deriving (Show, Eq, Data)
+  deriving (Eq, Data)
+
+instance Show SrcSpan where
+  show SrcSpan {..} =
+    srcSpanFilename <> ":"
+      <> if srcSpanStartLine == srcSpanEndLine
+        then
+          show srcSpanEndLine <> ":"
+            <> if srcSpanStartColumn == srcSpanEndColumn
+              then show srcSpanEndColumn
+              else show srcSpanStartColumn <> "-" <> show srcSpanEndColumn
+        else show (srcSpanStartLine, srcSpanStartColumn) <> "-" <> show (srcSpanEndLine, srcSpanEndColumn)
 
 instance Ord SrcSpan where
   a `compare` b = case (srcSpanStartLine a, srcSpanStartColumn a)
@@ -506,7 +517,9 @@ data NixBinding p
   = -- | @x = e;@
     NixNormalBinding (XNixNormalBinding p) (LNixAttrPath p) (LNixExpr p)
   | -- | @inherit a@, @inherit (a) b c@, @inherit (a) "b" ${"c"}@
-    NixInheritBinding (XNixInheritBinding p) (Maybe (NixExpr p)) [LNixAttrKey p]
+    -- Note: Dynamic keys like @${"a" + "b"}@ are not allowed by nix runtime, but only parsed.
+    -- However, @${"a"}@ can be parsed and evaluated. For us, we accept them all.
+    NixInheritBinding (XNixInheritBinding p) (Maybe (LNixExpr p)) [LNixAttrKey p]
   | XNixBinding !(XXNixBinding p)
 
 deriving instance
@@ -652,7 +665,7 @@ data NixExpr p
     NixNegApp (XNixNegApp p) (LNixExpr p)
   | -- | @[ a b c ]@
     NixList (XNixList p) [LNixExpr p]
-  | -- | See 'NixSetRecursive' and 'LNixBinding'
+  | -- | See 'NixSetRecursive' and 'NixBinding'
     NixSet (XNixSet p) NixSetIsRecursive [LNixBinding p]
   | -- | @let a = 1; in b@, @let inherit (a) b; in c@
     NixLet (XNixLet p) [LNixBinding p] (LNixExpr p)

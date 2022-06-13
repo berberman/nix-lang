@@ -62,12 +62,12 @@ updateLoc :: Parser ()
 updateLoc = getSourcePos >>= putLoc . sourcePosToLoc
 
 collectComment :: Parser a -> Parser a
-collectComment = fmap unLoc . located
+collectComment = fmap unLoc . locatedC
 
 --------------------------------------------------------------------------------
 
-located' :: Bool -> Parser a -> Parser (Located a)
-located' includeWhiteSpace p = do
+located' :: Bool -> Bool -> Parser a -> Parser (Located a)
+located' includeWhiteSpace allocateComments p = do
   start <- getSourcePos
   x <- p
   end <-
@@ -79,7 +79,7 @@ located' includeWhiteSpace p = do
           (sourceName start)
           (unPos $ sourceLine start, unPos $ sourceColumn start)
           end
-  unless includeWhiteSpace $ do
+  when allocateComments $ do
     (l, c) <- sourcePosToLoc <$> getSourcePos
     allocatePendingComments s {srcSpanEndLine = l, srcSpanEndColumn = c} s
   pure $ L s x
@@ -101,12 +101,16 @@ allocatePendingComments s s' = modify' $ \ps@PState {..} ->
         }
 
 located :: Parser a -> Parser (Located a)
-located = located' False
+located = located' False False
+
+locatedC :: Parser a -> Parser (Located a)
+locatedC = located' False True
 
 eatLineComment :: Parser ()
 eatLineComment = do
   c <- located'
     True
+    False
     $ do
       pound <- string "#"
       (pound <>) <$> takeWhileP (Just "chars") (\x -> x /= '\n' && x /= '\r')
@@ -114,7 +118,7 @@ eatLineComment = do
 
 eatBlockComment :: Parser ()
 eatBlockComment = do
-  c <- located' True $ do
+  c <- located' True False $ do
     start <- string "/*"
     content <- manyTill anySingle $ string "*/"
     pure $ start <> T.pack content
@@ -150,7 +154,7 @@ isPathChar x = isAlpha x || isDigit x || x `elem` ['.', '_', '-', '+', '~']
 betweenToken :: Ann -> Ann -> Bool -> Parser a -> Parser (Located a)
 betweenToken t1 t2 includeWhitespace p = do
   (L l (open, x, close)) <-
-    located $
+    locatedC $
       (,,) <$> located (token t1 includeWhitespace <* unless includeWhitespace updateLoc)
         <*> p
         <*> located (token t2 includeWhitespace <* unless includeWhitespace updateLoc)
@@ -178,25 +182,25 @@ litBoolean :: Parser (NixExpr Ps)
 litBoolean = litTrue <|> litFalse
   where
     litTrue = do
-      (L l _) <- located $ lexeme $ symbol' "true" <* legalReserved
+      (L l _) <- locatedC $ lexeme $ symbol' "true" <* legalReserved
       pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF True
     litFalse = do
-      (L l _) <- located $ lexeme $ symbol' "false" <* legalReserved
+      (L l _) <- locatedC $ lexeme $ symbol' "false" <* legalReserved
       pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF False
 
 litNull :: Parser (NixExpr Ps)
 litNull = do
-  (L l _) <- located $ lexeme $ symbol' "null" <* legalReserved
+  (L l _) <- locatedC $ lexeme $ symbol' "null" <* legalReserved
   pure $ NixLit NoExtF $ L l $ NixNull NoExtF
 
 litFloat :: Parser (NixExpr Ps)
 litFloat = do
-  (L l f) <- located $ lexeme L.float
+  (L l f) <- locatedC $ lexeme L.float
   pure $ NixLit NoExtF $ L l $ NixFloat NoExtF f
 
 litInteger :: Parser (NixExpr Ps)
 litInteger = do
-  (L l f) <- located $ lexeme L.decimal
+  (L l f) <- locatedC $ lexeme L.decimal
   pure $ NixLit NoExtF $ L l $ NixInteger NoExtF f
 
 --------------------------------------------------------------------------------
@@ -214,7 +218,7 @@ envPath =
 literalPath :: Parser (NixExpr Ps)
 literalPath =
   fmap (NixPath NoExtF) $
-    located $
+    locatedC $
       NixLiteralPath NoExtF
         <$> ( do
                 u <- takeWhileP (Just "path") isPathChar
@@ -345,7 +349,7 @@ attrKey = dynamicString <|> dynamicInterpol <|> static
 
 attrPath :: Parser (NixAttrPath Ps)
 attrPath =
-  located
+  locatedC
     ( do
         h <- located attrKey
         (rd, ra) <- fmap unzip $ many $ (,) <$> located dot <*> located attrKey
@@ -354,6 +358,50 @@ attrPath =
     >>= \(L l (ld, a)) -> do
       forM_ ld $ addAnnotation l AnnDot
       pure $ NixAttrPath a
+
+--------------------------------------------------------------------------------
+
+inherit :: Parser (NixBinding Ps)
+inherit =
+  locatedC ((,,,) <$> kw <*> set <*> keys <*> end) >>= \(L l (a, b, c, d)) -> do
+    addAnnotation l AnnInherit $ getLoc a
+    addAnnotation l AnnSemicolon $ getLoc d
+    pure $ NixInheritBinding NoExtF b c
+  where
+    kw = located $ symbol' "inherit" <* (legalReserved >> ws)
+    set = optional $ located nixPar
+    keys = many $ located attrKey
+    end = located $ symbol ";"
+
+normal :: Parser (NixBinding Ps)
+normal =
+  locatedC ((,,,) <$> path <*> eq <*> expr <*> end) >>= \(L l (a, b, c, d)) -> do
+    addAnnotation l AnnEqual $ getLoc b
+    addAnnotation l AnnSemicolon $ getLoc d
+    pure $ NixNormalBinding NoExtF a c
+  where
+    path = located attrPath
+    eq = located $ symbol "="
+    expr = located nixExpr
+    end = located $ symbol ";"
+
+nixBinding :: Parser (NixBinding Ps)
+nixBinding = inherit <|> normal
+
+--------------------------------------------------------------------------------
+
+nixSet :: Parser (NixExpr Ps)
+nixSet =
+  locatedC ((,,,) <$> kw <*> open <*> bindings <*> close) >>= \(L l (a, b, c, d)) -> do
+    maybe (pure ()) (addAnnotation l AnnRec . getLoc) a
+    addAnnotation l AnnOpenC $ getLoc b
+    addAnnotation l AnnCloseC $ getLoc d
+    pure $ NixSet NoExtF (maybe NixSetNonRecursive (const NixSetRecursive) a) c
+  where
+    kw = optional $ located $ symbol' "rec" <* (legalReserved >> ws)
+    open = located $ symbol "{"
+    close = located $ symbol "}"
+    bindings = many $ located nixBinding
 
 --------------------------------------------------------------------------------
 
