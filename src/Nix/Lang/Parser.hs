@@ -415,6 +415,99 @@ nixSet =
 
 --------------------------------------------------------------------------------
 
+varPat :: Parser (NixFuncPat Ps)
+varPat =
+  (try litUri >> fail "unexpected uri")
+    <|> ( located ((,) <$> located ident <*> located (symbol ":")) >>= \(L l (li, lc)) -> do
+            addAnnotation l AnnId $ getLoc li
+            addAnnotation l AnnColon $ getLoc lc
+            pure $ NixVarPat NoExtF li
+        )
+
+-- Note: this is not identical to @pat $ try bodyWithLeading <|> pat bodyWithTrailing@
+setPat :: Parser (NixFuncPat Ps)
+setPat = try (pat bodyWithLeading) <|> pat bodyWithTrailing
+  where
+    leadingAs = located $ (\i a -> (a, NixSetPatAs NixSetPatAsLeading i)) <$> located ident <*> located (void $ symbol "@")
+    trailingAs = located $ (\a i -> (a, NixSetPatAs NixSetPatAsTrailing i)) <$> located (void $ symbol "@") <*> located ident
+    bind = located $ (,) <$> located ident <*> optional ((,) <$> located (void $ symbol "?") <*> located nixExpr)
+    ellipsis = located $ void $ symbol "..."
+    -- ([bind], [comma])
+    go ::
+      ([Located (Located Text, Maybe (Located (), LNixExpr Ps))], [Located ()]) ->
+      -- ([bind], [comma], ellipsis)
+      Parser ([Located (Located Text, Maybe (Located (), LNixExpr Ps))], [Located ()], Maybe (Located ()))
+    go (bs, cs) = ((bs,cs,) . pure <$> ellipsis) <|> go1
+      where
+        go1 = option (bs, cs, Nothing) $ do
+          b <- bind
+          let (bs1, cs1) = (bs <> [b], cs)
+          option (bs1, cs1, Nothing) $ do
+            c <- located $ void $ symbol ","
+            go (bs1, cs1 <> [c])
+    -- TODO: maybe it would be better to attach braces to the span of the outermost ast
+    body = betweenToken AnnOpenC AnnCloseC True True $ go mempty
+    bodyWithLeading = (,) <$> optional leadingAs <*> body
+    bodyWithTrailing = flip (,) <$> body <*> optional trailingAs
+    pat ::
+      -- (asPattern, [bind], [comma], ellipsis)
+      Parser
+        ( Maybe (Located (Located (), NixSetPatAs Ps)),
+          Located
+            ( [Located (Located Text, Maybe (Located (), LNixExpr Ps))],
+              [Located ()],
+              Maybe (Located ())
+            )
+        ) ->
+      Parser (NixFuncPat Ps)
+    pat x = do
+      (L l ((mas, L lBody (bs, cs, me)), L lc _)) <- located $ (,) <$> x <*> located (symbol ":")
+
+      -- as pattern
+      ras <- case mas of
+        Just (L al (aal, as)) -> do
+          -- add as to the span of the pattern
+          addAnnotation al AnnAt $ getLoc aal
+          pure $ Just $ L al as
+        Nothing -> pure Nothing
+
+      -- commas
+      forM_ (zip (getLoc <$> bs) (getLoc <$> cs)) $ \(bl, cl) ->
+        -- add commas to the span of each term
+        addAnnotation bl AnnComma cl
+
+      -- ellipsis
+      re <- case me of
+        Just (L el _) -> do
+          -- add ellipsis to the span of the braces
+          addAnnotation lBody AnnEllipsis el
+          pure NixSetPatIsEllipses
+        _ -> pure NixSetPatNotEllipses
+
+      -- bindings
+      rb <- forM bs $ \(L lb (i, mDefault)) -> do
+        rDef <- case mDefault of
+          Just (q, def) -> do
+            -- add question mark to the span of each binding
+            addAnnotation lb AnnQuestion $ getLoc q
+            pure $ Just def
+          _ -> pure Nothing
+        addAnnotation lb AnnId $ getLoc i
+        pure $ L lb $ NixSetPatBinding i rDef
+
+      -- colon after the pattern
+      addAnnotation l AnnColon lc
+
+      pure $ NixSetPat NoExtF re ras rb
+
+nixFuncPat :: Parser (NixFuncPat Ps)
+nixFuncPat = try varPat <|> setPat
+
+nixLam :: Parser (NixExpr Ps)
+nixLam = collectComment $ NixLam NoExtF <$> located nixFuncPat <*> located nixExpr
+
+--------------------------------------------------------------------------------
+
 nixTerm :: Parser (NixExpr Ps)
 nixTerm = undefined
 

@@ -160,7 +160,7 @@ data NoExtC
 instance Show NoExtC where
   show _ = undefined
 
-type instance NixIdP Ps = Text
+type instance NixId Ps = Text
 
 type instance XNixUri Ps = NoExtF
 
@@ -459,7 +459,7 @@ type family XXNixPath p
 --------------------------------------------------------------------------------
 data NixAttrKey p
   = -- | @{ x = 123; }.x@
-    NixStaticAttrKey (XNixStaticAttrKey p) (LNixIdP p)
+    NixStaticAttrKey (XNixStaticAttrKey p) (LNixId p)
   | -- | @{ x = 123; }."x"@, @{ x = 123; }."${"x"}"@
     -- Only double quoted strings are allowed
     NixDynamicStringAttrKey (XNixDynamicStringAttrKey p) [LNixStringPart p]
@@ -474,7 +474,7 @@ deriving instance
     Data (XNixDynamicInterpolAttrKey p),
     Data (LNixStringPart p),
     Data (XXNixAttrKey p),
-    Data (NixIdP p),
+    Data (NixId p),
     Data (NixExpr p)
   ) =>
   Data (NixAttrKey p)
@@ -485,7 +485,7 @@ deriving instance
     Show (XNixDynamicInterpolAttrKey p),
     Show (LNixStringPart p),
     Show (XXNixAttrKey p),
-    Show (NixIdP p),
+    Show (NixId p),
     Show (NixExpr p)
   ) =>
   Show (NixAttrKey p)
@@ -564,25 +564,27 @@ data NixSetPatAsLocation
 data NixSetPatAs p = NixSetPatAs
   { nspaLocation :: NixSetPatAsLocation,
     -- | @x@{...}@
-    nspaVar :: LNixIdP p
+    nspaVar :: LNixId p
   }
 
-deriving instance (Data p, Data (NixIdP p)) => Data (NixSetPatAs p)
+deriving instance (Data p, Data (NixId p)) => Data (NixSetPatAs p)
 
-deriving instance (Show (NixIdP p)) => Show (NixSetPatAs p)
+deriving instance (Show (NixId p)) => Show (NixSetPatAs p)
+
+type LNixSetPatAs p = Located (NixSetPatAs p)
 
 --------------------------------------------------------------------------------
 
-data NixSetPatBinding p = NixSetPatAsBinding
-  { -- | @{a, b}@
-    nspbVar :: LNixIdP p,
+data NixSetPatBinding p = NixSetPatBinding
+  { -- | @{a}@
+    nspbVar :: LNixId p,
     -- | @{a ? b}@
     nspbDefault :: Maybe (LNixExpr p)
   }
 
-deriving instance (Data p, Data (NixIdP p), Data (NixExpr p)) => Data (NixSetPatBinding p)
+deriving instance (Data p, Data (NixId p), Data (NixExpr p)) => Data (NixSetPatBinding p)
 
-deriving instance (Show (NixIdP p), Show (NixExpr p)) => Show (NixSetPatBinding p)
+deriving instance (Show (NixId p), Show (NixExpr p)) => Show (NixSetPatBinding p)
 
 type LNixSetPatBinding p = Located (NixSetPatBinding p)
 
@@ -596,14 +598,14 @@ data NixSetPatEllipses
 
 data NixFuncPat p
   = -- | @x: ...@
-    NixVarPat (XNixVarPat p) (LNixIdP p)
+    NixVarPat (XNixVarPat p) (LNixId p)
   | -- | @x@{a, b ? c, d, ...}: ...@
-    NixSetPat (XNixSetPat p) NixSetPatEllipses (Maybe (NixSetPatAs p)) [LNixSetPatBinding p]
+    NixSetPat (XNixSetPat p) NixSetPatEllipses (Maybe (LNixSetPatAs p)) [LNixSetPatBinding p]
   | XNixFuncPat !(XXNixFuncPat p)
 
 deriving instance
   ( Data p,
-    Data (NixIdP p),
+    Data (NixId p),
     Data (XNixVarPat p),
     Data (XNixSetPat p),
     Data (XXNixFuncPat p),
@@ -613,7 +615,7 @@ deriving instance
   Data (NixFuncPat p)
 
 deriving instance
-  ( Show (NixIdP p),
+  ( Show (NixId p),
     Show (XNixVarPat p),
     Show (XNixSetPat p),
     Show (XXNixFuncPat p),
@@ -642,7 +644,7 @@ data NixSetIsRecursive
 
 data NixExpr p
   = -- | @x@
-    NixVar (XNixVar p) (LNixIdP p)
+    NixVar (XNixVar p) (LNixId p)
   | -- | See 'NixLit'
     NixLit (XNixLit p) (LNixLit p)
   | -- | Parenthesized expr
@@ -683,7 +685,7 @@ data NixExpr p
 
 deriving instance
   ( Data p,
-    Data (NixIdP p),
+    Data (NixId p),
     Data (XNixVar p),
     Data (XNixLit p),
     Data (NixLit p),
@@ -714,7 +716,7 @@ deriving instance
   Data (NixExpr p)
 
 deriving instance
-  ( Show (NixIdP p),
+  ( Show (NixId p),
     Show (XNixVar p),
     Show (XNixLit p),
     Show (NixLit p),
@@ -744,9 +746,9 @@ deriving instance
   ) =>
   Show (NixExpr p)
 
-type family NixIdP p
+type family NixId p
 
-type LNixIdP p = Located (NixIdP p)
+type LNixId p = Located (NixId p)
 
 type LNixExpr p = Located (NixExpr p)
 
