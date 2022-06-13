@@ -149,26 +149,26 @@ isIdentChar x = isAlpha x || isDigit x || x `elem` ['-', '_', '\'']
 isPathChar :: Char -> Bool
 isPathChar x = isAlpha x || isDigit x || x `elem` ['.', '_', '-', '+', '~']
 
+isSchemeChar :: Char -> Bool
+isSchemeChar x = isAlpha x || isDigit x || x `elem` ['+', '-', '.']
+
+isUriChar :: Char -> Bool
+isUriChar x = isAlpha x || isDigit x || x `elem` ['~', '!', '@', '$', '%', '&', '*', '-', '=', '_', '+', ':', ',', '.', '/', '?']
+
 --------------------------------------------------------------------------------
 
-betweenToken :: Ann -> Ann -> Bool -> Parser a -> Parser (Located a)
-betweenToken t1 t2 includeWhitespace p = do
+betweenToken :: Ann -> Ann -> Bool -> Bool -> Parser a -> Parser (Located a)
+betweenToken t1 t2 includeWhitespaceOpen includeWhitespaceClose p = do
   (L l (open, x, close)) <-
     locatedC $
-      (,,) <$> located (token t1 includeWhitespace <* unless includeWhitespace updateLoc)
+      (,,) <$> located (token t1 includeWhitespaceOpen <* unless includeWhitespaceOpen updateLoc)
         <*> p
-        <*> located (token t2 includeWhitespace <* unless includeWhitespace updateLoc)
+        <*> located (token t2 includeWhitespaceClose <* unless includeWhitespaceClose updateLoc)
   addAnnotation l t1 (getLoc open)
   addAnnotation l t2 (getLoc close)
   pure $ L l x
 
-braces :: Parser a -> Parser (Located a)
-braces = betweenToken AnnOpenC AnnCloseC True
-
-brackets :: Parser a -> Parser (Located a)
-brackets = betweenToken AnnOpenS AnnCloseS True
-
-antiquote :: Bool -> Parser a -> Parser (Located a)
+antiquote :: Bool -> Bool -> Parser a -> Parser (Located a)
 antiquote = betweenToken AnnInterpolOpen AnnInterpolClose
 
 legalReserved :: Parser ()
@@ -203,6 +203,16 @@ litInteger = do
   (L l f) <- locatedC $ lexeme L.decimal
   pure $ NixLit NoExtF $ L l $ NixInteger NoExtF f
 
+litUri :: Parser (NixExpr Ps)
+litUri = fmap (NixLit NoExtF) $
+  locatedC $
+    lexeme $ do
+      h <- letterChar
+      scheme <- takeWhileP (Just "scheme") isSchemeChar
+      colon <- char ':'
+      uri <- takeWhile1P (Just "uri") isUriChar
+      pure $ NixUri NoExtF $ T.cons h scheme <> T.cons colon uri
+
 --------------------------------------------------------------------------------
 slash :: Parser Char
 slash = char '/' <* notFollowedBy (satisfy $ \x -> x == '/' || isSpace x || x == '>')
@@ -212,7 +222,7 @@ envPath =
   collectComment $
     lexeme $
       fmap (NixEnvPath NoExtF) $
-        betweenToken AnnEnvPathOpen AnnEnvPathClose False $ do
+        betweenToken AnnEnvPathOpen AnnEnvPathClose False False $ do
           lookAhead (satisfy (/= '/')) >> T.pack <$> many (satisfy isPathChar <|> slash)
 
 literalPath :: Parser (NixExpr Ps)
@@ -281,7 +291,7 @@ nixStringPartLiteral end escapeStart escape =
     <|> (NixStringLiteral NoExtF . T.pack <$> some (notFollowedBy (void end <|> void (char '$') <|> void escapeStart) >> anySingle))
 
 nixStringPartInterpol :: Parser (NixStringPart Ps)
-nixStringPartInterpol = NixStringInterpol NoExtF <$> antiquote False nixExpr
+nixStringPartInterpol = NixStringInterpol NoExtF <$> antiquote True False nixExpr
 
 -- | Get source text without consuming it
 stringSourceText :: Parser Text -> Parser Text -> Parser Text -> Parser SourceText
@@ -303,7 +313,7 @@ doubleQuotesString = stringSourceText (string "\"") (string "\"") (string "\\") 
     -- @$${@ does not indicate an interpolation, so we try to consume $$ first
     parts = many (located $ ((NixStringLiteral NoExtF <$> string "$$") <|> nixStringPartInterpol <|> nixStringPartLiteral "\"" "\\" escape) <* updateLoc)
     lit src = fmap (NixDoubleQuotesString src . mergeStringPartLiteral) parts
-    expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleQuote AnnDoubleQuote False $ lit src
+    expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleQuote AnnDoubleQuote False False $ lit src
 
 doubleSingleQuotesString :: Parser (NixExpr Ps)
 doubleSingleQuotesString = stringSourceText (string "''") (string "''") (string "''") >>= expr
@@ -319,7 +329,7 @@ doubleSingleQuotesString = stringSourceText (string "''") (string "''") (string 
     -- @$${@ does not indicate an interpolation, so we try to consume $$ first
     parts = many (located $ ((NixStringLiteral NoExtF <$> string "$$") <|> nixStringPartInterpol <|> nixStringPartLiteral "''" "''" escape) <* updateLoc)
     lit src = fmap (NixDoubleSingleQuotesString src . mergeStringPartLiteral) parts
-    expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleSingleQuotes AnnDoubleSingleQuotes False $ lit src
+    expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleSingleQuotes AnnDoubleSingleQuotes False False $ lit src
 
 nixString :: Parser (NixExpr Ps)
 nixString = collectComment $ lexeme $ doubleQuotesString <|> doubleSingleQuotesString
@@ -327,7 +337,7 @@ nixString = collectComment $ lexeme $ doubleQuotesString <|> doubleSingleQuotesS
 --------------------------------------------------------------------------------
 
 nixPar :: Parser (NixExpr Ps)
-nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True nixExpr
+nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True True nixExpr
 
 --------------------------------------------------------------------------------
 
@@ -345,7 +355,7 @@ attrKey = dynamicString <|> dynamicInterpol <|> static
     dynamicInterpol =
       stringSourceText "${" "}" empty >>= \src ->
         NixDynamicInterpolAttrKey src
-          <$> antiquote True nixExpr
+          <$> antiquote True True nixExpr
 
 attrPath :: Parser (NixAttrPath Ps)
 attrPath =
