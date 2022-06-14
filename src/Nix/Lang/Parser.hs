@@ -182,30 +182,30 @@ litBoolean :: Parser (NixExpr Ps)
 litBoolean = litTrue <|> litFalse
   where
     litTrue = do
-      (L l _) <- locatedC $ lexeme $ symbol' "true" <* legalReserved
+      (L l _) <- located $ lexeme $ symbol' "true" <* legalReserved
       pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF True
     litFalse = do
-      (L l _) <- locatedC $ lexeme $ symbol' "false" <* legalReserved
+      (L l _) <- located $ lexeme $ symbol' "false" <* legalReserved
       pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF False
 
 litNull :: Parser (NixExpr Ps)
 litNull = do
-  (L l _) <- locatedC $ lexeme $ symbol' "null" <* legalReserved
+  (L l _) <- located $ lexeme $ symbol' "null" <* legalReserved
   pure $ NixLit NoExtF $ L l $ NixNull NoExtF
 
 litFloat :: Parser (NixExpr Ps)
 litFloat = do
-  (L l f) <- locatedC $ lexeme L.float
+  (L l f) <- located $ lexeme L.float
   pure $ NixLit NoExtF $ L l $ NixFloat NoExtF f
 
 litInteger :: Parser (NixExpr Ps)
 litInteger = do
-  (L l f) <- locatedC $ lexeme L.decimal
+  (L l f) <- located $ lexeme L.decimal
   pure $ NixLit NoExtF $ L l $ NixInteger NoExtF f
 
 litUri :: Parser (NixExpr Ps)
 litUri = fmap (NixLit NoExtF) $
-  locatedC $
+  located $
     lexeme $ do
       h <- letterChar
       scheme <- takeWhileP (Just "scheme") isSchemeChar
