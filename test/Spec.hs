@@ -7,7 +7,7 @@ import Text.Megaparsec
 import Text.Pretty.Simple (pPrint)
 
 main :: IO ()
-main = test nixLam
+main = test nixSet
 
 test :: (Show a) => Parser a -> IO ()
 test parser =

@@ -507,9 +507,27 @@ nixLam :: Parser (NixExpr Ps)
 nixLam = collectComment $ NixLam NoExtF <$> located nixFuncPat <*> located nixExpr
 
 --------------------------------------------------------------------------------
+nixIf :: Parser (NixExpr Ps)
+nixIf = collectComment f
+  where
+    kwIf = located $ lexeme $ symbol' "if" <* legalReserved
+    kwThen = located $ lexeme $ symbol' "then" <* legalReserved
+    kwElse = located $ lexeme $ symbol' "else" <* legalReserved
+    body = located $ (,,,,,) <$> kwIf <*> located nixOp <*> kwThen <*> located nixExpr <*> kwElse <*> located nixExpr
+    f =
+      body >>= \(L l (kif, op, kth, e1, kel, e2)) -> do
+        addAnnotation l AnnIf $ getLoc kif
+        addAnnotation l AnnThen $ getLoc kth
+        addAnnotation l AnnElse $ getLoc kel
+        pure $ NixIf NoExtF op e1 e2
+
+--------------------------------------------------------------------------------
 
 nixTerm :: Parser (NixExpr Ps)
 nixTerm = undefined
+
+nixOp :: Parser (NixExpr Ps)
+nixOp = undefined
 
 nixExpr :: Parser (NixExpr Ps)
 nixExpr = litInteger
