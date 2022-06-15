@@ -507,6 +507,14 @@ nixLam :: Parser (NixExpr Ps)
 nixLam = collectComment $ NixLam NoExtF <$> located nixFuncPat <*> located nixExpr
 
 --------------------------------------------------------------------------------
+
+nixList :: Parser (NixExpr Ps)
+nixList =
+  fmap (NixList NoExtF . unLoc) $
+    betweenToken AnnOpenS AnnCloseS True True $ many $ located nixTerm
+
+--------------------------------------------------------------------------------
+
 nixIf :: Parser (NixExpr Ps)
 nixIf = collectComment f
   where
