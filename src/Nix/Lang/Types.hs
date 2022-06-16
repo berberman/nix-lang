@@ -295,6 +295,7 @@ data NixLit p
   | -- | @233@
     NixInteger (XNixInteger p) Integer
   | -- | @233.3@
+    -- Note: Currently scientific and number started with decimal dot are not supported
     NixFloat (XNixFloat p) Float
   | -- | @true@ or @false@
     NixBoolean (XNixBoolean p) Bool
@@ -545,6 +546,10 @@ deriving instance
 
 type LNixBinding p = Located (NixBinding p)
 
+type NixBindings p = [LNixBinding p]
+
+type LNixBindings p = Located (NixBindings p)
+
 type family XNixNormalBinding p
 
 type family XNixInheritBinding p
@@ -668,13 +673,14 @@ data NixExpr p
   | -- | @[ a b c ]@
     NixList (XNixList p) [LNixExpr p]
   | -- | See 'NixSetRecursive' and 'NixBinding'
-    NixSet (XNixSet p) NixSetIsRecursive [LNixBinding p]
+    NixSet (XNixSet p) NixSetIsRecursive (LNixBindings p)
   | -- | @let a = 1; in b@, @let inherit (a) b; in c@
-    NixLet (XNixLet p) [LNixBinding p] (LNixExpr p)
+    -- Note: legacy let body syntax is not supported
+    NixLet (XNixLet p) (LNixBindings p) (LNixExpr p)
   | -- | @a ? b@
     NixHasAttr (XNixHasAttr p) (LNixExpr p) (LNixAttrPath p)
-  | -- | See 'NixAttrPath'
-    NixSelect (XNixSelect p) (Maybe (LNixExpr p)) (LNixExpr p) (LNixAttrPath p)
+  | -- | @a.b or c@
+    NixSelect (XNixSelect p) (LNixExpr p) (LNixAttrPath p) (Maybe (LNixExpr p))
   | -- | @if a then b else c@
     NixIf (XNixIf p) (LNixExpr p) (LNixExpr p) (LNixExpr p)
   | -- | @with a; b@

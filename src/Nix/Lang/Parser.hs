@@ -176,21 +176,24 @@ legalReserved = lookAhead $
   void $
     satisfy $ \x -> isSpace x || (x `notElem` T.unpack (T.concat reservedNames) && x `elem` tokenString)
 
+reservedKw :: Text -> Parser (Located Text)
+reservedKw x = located $ lexeme $ symbol' x <* legalReserved
+
 --------------------------------------------------------------------------------
 
 litBoolean :: Parser (NixExpr Ps)
 litBoolean = litTrue <|> litFalse
   where
     litTrue = do
-      (L l _) <- located $ lexeme $ symbol' "true" <* legalReserved
+      (L l _) <- reservedKw "true"
       pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF True
     litFalse = do
-      (L l _) <- located $ lexeme $ symbol' "false" <* legalReserved
+      (L l _) <- reservedKw "false"
       pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF False
 
 litNull :: Parser (NixExpr Ps)
 litNull = do
-  (L l _) <- located $ lexeme $ symbol' "null" <* legalReserved
+  (L l _) <- reservedKw "null"
   pure $ NixLit NoExtF $ L l $ NixNull NoExtF
 
 litFloat :: Parser (NixExpr Ps)
@@ -217,8 +220,8 @@ litUri = fmap (NixLit NoExtF) $
 slash :: Parser Char
 slash = char '/' <* notFollowedBy (satisfy $ \x -> x == '/' || isSpace x || x == '>')
 
-envPath :: Parser (NixExpr Ps)
-envPath =
+nixEnvPath :: Parser (NixExpr Ps)
+nixEnvPath =
   collectComment $
     lexeme $
       fmap (NixEnvPath NoExtF) $
@@ -261,6 +264,9 @@ ident = lexeme $ do
   when (x `elem` reservedNames) $
     fail $ T.unpack x <> " is a reserved name"
   pure x
+
+nixVar :: Parser (NixExpr Ps)
+nixVar = NixVar NoExtF <$> located ident
 
 --------------------------------------------------------------------------------
 
@@ -357,13 +363,14 @@ attrKey = dynamicString <|> dynamicInterpol <|> static
         NixDynamicInterpolAttrKey src
           <$> antiquote True True nixExpr
 
-attrPath :: Parser (NixAttrPath Ps)
-attrPath =
+attrPath :: Bool -> Parser (NixAttrPath Ps)
+attrPath dotFirst =
   locatedC
     ( do
+        mdot <- if dotFirst then pure <$> located dot else pure []
         h <- located attrKey
         (rd, ra) <- fmap unzip $ many $ (,) <$> located dot <*> located attrKey
-        pure (fmap getLoc rd, h : ra)
+        pure (fmap getLoc $ mdot <> rd, h : ra)
     )
     >>= \(L l (ld, a)) -> do
       forM_ ld $ addAnnotation l AnnDot
@@ -390,7 +397,7 @@ normal =
     addAnnotation l AnnSemicolon $ getLoc d
     pure $ NixNormalBinding NoExtF a c
   where
-    path = located attrPath
+    path = located $ attrPath False
     eq = located $ symbol "="
     expr = located nixExpr
     end = located $ symbol ";"
@@ -408,10 +415,10 @@ nixSet =
     addAnnotation l AnnCloseC $ getLoc d
     pure $ NixSet NoExtF (maybe NixSetNonRecursive (const NixSetRecursive) a) c
   where
-    kw = optional $ located $ symbol' "rec" <* (legalReserved >> ws)
+    kw = optional $ reservedKw "rec"
     open = located $ symbol "{"
     close = located $ symbol "}"
-    bindings = many $ located nixBinding
+    bindings = located $ many $ located nixBinding
 
 --------------------------------------------------------------------------------
 
@@ -516,28 +523,108 @@ nixList =
 --------------------------------------------------------------------------------
 
 nixIf :: Parser (NixExpr Ps)
-nixIf = collectComment f
+nixIf =
+  collectComment $
+    body >>= \(L l (kif, op, kth, e1, kel, e2)) -> do
+      addAnnotation l AnnIf $ getLoc kif
+      addAnnotation l AnnThen $ getLoc kth
+      addAnnotation l AnnElse $ getLoc kel
+      pure $ NixIf NoExtF op e1 e2
   where
-    kwIf = located $ lexeme $ symbol' "if" <* legalReserved
-    kwThen = located $ lexeme $ symbol' "then" <* legalReserved
-    kwElse = located $ lexeme $ symbol' "else" <* legalReserved
+    kwIf = reservedKw "if"
+    kwThen = reservedKw "then"
+    kwElse = reservedKw "else"
     body = located $ (,,,,,) <$> kwIf <*> located nixOp <*> kwThen <*> located nixExpr <*> kwElse <*> located nixExpr
-    f =
-      body >>= \(L l (kif, op, kth, e1, kel, e2)) -> do
-        addAnnotation l AnnIf $ getLoc kif
-        addAnnotation l AnnThen $ getLoc kth
-        addAnnotation l AnnElse $ getLoc kel
-        pure $ NixIf NoExtF op e1 e2
 
 --------------------------------------------------------------------------------
 
+nixWith :: Parser (NixExpr Ps)
+nixWith =
+  collectComment $
+    body >>= \(L l (kwi, e1, semicolon, e2)) -> do
+      addAnnotation l AnnWith $ getLoc kwi
+      addAnnotation l AnnSemicolon $ getLoc semicolon
+      pure $ NixWith NoExtF e1 e2
+  where
+    kw = reservedKw "with"
+    sem = located $ symbol ";"
+    body = located $ (,,,) <$> kw <*> located nixExpr <*> sem <*> located nixExpr
+
+--------------------------------------------------------------------------------
+
+nixAssert :: Parser (NixExpr Ps)
+nixAssert =
+  collectComment $
+    body >>= \(L l (kas, e1, semicolon, e2)) -> do
+      addAnnotation l AnnAssert $ getLoc kas
+      addAnnotation l AnnSemicolon $ getLoc semicolon
+      pure $ NixWith NoExtF e1 e2
+  where
+    ka = reservedKw "assert"
+    sem = located $ symbol ";"
+    body = located $ (,,,) <$> ka <*> located nixExpr <*> sem <*> located nixExpr
+
+--------------------------------------------------------------------------------
+
+nixLet :: Parser (NixExpr Ps)
+nixLet =
+  collectComment $
+    body >>= \(L l (kl, bs, ki, e)) -> do
+      addAnnotation l AnnLet $ getLoc kl
+      addAnnotation l AnnIn $ getLoc ki
+      pure $ NixLet NoExtF bs e
+  where
+    kLet = reservedKw "let"
+    kIn = reservedKw "in"
+    bindings = located $ many $ located nixBinding
+    body = located $ (,,,) <$> kLet <*> bindings <*> kIn <*> located nixExpr
+
+--------------------------------------------------------------------------------
+
+-- | Term' is expr without operators (including selection)
+nixTerm' :: Parser (NixExpr Ps)
+nixTerm' =
+  lookAhead anySingle >>= \case
+    '(' -> nixPar
+    '{' -> nixSet
+    '[' -> nixList
+    '/' -> nixPath
+    '<' -> nixEnvPath
+    '\"' -> nixString
+    '\'' -> nixString
+    x ->
+      msum $
+        [nixSet | x == 'r']
+          <> [try nixPath | isPathChar x]
+          <> [try litFloat <|> litInteger | isDigit x]
+          <> [litNull | x == 'n']
+          <> [litBoolean | x == 't' || x == 'f']
+          <> [try litUri, nixVar]
+
+-- | Term is term' with selection
 nixTerm :: Parser (NixExpr Ps)
-nixTerm = undefined
+nixTerm = do
+  t <- located nixTerm'
+  ms <- optional $ located $ attrPath True
+  case ms of
+    (Just s) ->
+      optional
+        ( located $ (,) <$> kwOr <*> def
+        )
+        >>= \case
+          Just (L bl (o, d)) -> do
+            addAnnotation (getLoc s `combineSrcSpans` bl) AnnOr $ getLoc o
+            pure $ NixSelect NoExtF t s $ Just d
+          _ -> pure $ NixSelect NoExtF t s Nothing
+    Nothing -> pure $ unLoc t
+  where
+    kwOr = reservedKw "or"
+    def = located nixExpr
 
 nixOp :: Parser (NixExpr Ps)
 nixOp = undefined
 
 nixExpr :: Parser (NixExpr Ps)
-nixExpr = litInteger
+nixExpr = nixTerm
 
 --------------------------------------------------------------------------------
