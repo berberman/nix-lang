@@ -58,6 +58,7 @@ library
   build-depends:
     , megaparsec
     , mtl
+    , parser-combinators
     , text
 
   exposed-modules:

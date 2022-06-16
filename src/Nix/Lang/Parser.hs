@@ -3,6 +3,7 @@
 
 module Nix.Lang.Parser where
 
+import Control.Monad.Combinators.Expr
 import Control.Monad.State.Strict
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.Data (Data)
@@ -21,7 +22,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 data PState = PState
   { psPendingComments :: [Located Comment],
     psComments :: [(SrcSpan, [Located Comment])],
-    psAnnotation :: [(SrcSpan, Ann, SrcSpan)],
+    psAnnotation :: [AddAnn],
     psLoc :: (Int, Int)
   }
   deriving (Show, Eq, Data)
@@ -40,7 +41,7 @@ addAnnotation ::
   Parser ()
 addAnnotation lt a ls = modify' $ \ps ->
   ps
-    { psAnnotation = (lt, a, ls) : psAnnotation ps
+    { psAnnotation = AddAnn lt a ls : psAnnotation ps
     }
 
 addPendingComment ::
@@ -139,21 +140,6 @@ symbol' = string
 
 token :: Ann -> Bool -> Parser Text
 token tk includeWhitespace = (if includeWhitespace then symbol else symbol') $ fromJust $ showToken tk
-
-reservedNames :: [Text]
-reservedNames = ["rec", "let", "in", "with", "inherit", "assert", "if", "then", "else"]
-
-isIdentChar :: Char -> Bool
-isIdentChar x = isAlpha x || isDigit x || x `elem` ['-', '_', '\'']
-
-isPathChar :: Char -> Bool
-isPathChar x = isAlpha x || isDigit x || x `elem` ['.', '_', '-', '+', '~']
-
-isSchemeChar :: Char -> Bool
-isSchemeChar x = isAlpha x || isDigit x || x `elem` ['+', '-', '.']
-
-isUriChar :: Char -> Bool
-isUriChar x = isAlpha x || isDigit x || x `elem` ['~', '!', '@', '$', '%', '&', '*', '-', '=', '_', '+', ':', ',', '.', '/', '?']
 
 --------------------------------------------------------------------------------
 
@@ -258,12 +244,13 @@ nixPath = collectComment $ lexeme $ try literalPath <|> interpolPath
 
 --------------------------------------------------------------------------------
 ident :: Parser Text
-ident = lexeme $ do
-  _ <- lookAhead (satisfy (\x -> isAlpha x || x == '_'))
-  x <- takeWhile1P (Just "ident") isIdentChar
-  when (x `elem` reservedNames) $
-    fail $ T.unpack x <> " is a reserved name"
-  pure x
+ident = try $
+  lexeme $ do
+    _ <- lookAhead (satisfy (\x -> isAlpha x || x == '_'))
+    x <- takeWhile1P (Just "ident") isIdentChar
+    when (x `elem` reservedNames) $
+      fail $ "'" <> T.unpack x <> "' is a reserved name"
+    pure x
 
 nixVar :: Parser (NixExpr Ps)
 nixVar = NixVar NoExtF <$> located ident
@@ -415,10 +402,11 @@ nixSet =
     addAnnotation l AnnCloseC $ getLoc d
     pure $ NixSet NoExtF (maybe NixSetNonRecursive (const NixSetRecursive) a) c
   where
+    -- TODO: why do we need these updateLoc?
     kw = optional $ reservedKw "rec"
-    open = located $ symbol "{"
+    open = located $ symbol "{" <* updateLoc
     close = located $ symbol "}"
-    bindings = located $ many $ located nixBinding
+    bindings = located $ many $ located nixBinding <* updateLoc
 
 --------------------------------------------------------------------------------
 
@@ -511,7 +499,7 @@ nixFuncPat :: Parser (NixFuncPat Ps)
 nixFuncPat = try varPat <|> setPat
 
 nixLam :: Parser (NixExpr Ps)
-nixLam = collectComment $ NixLam NoExtF <$> located nixFuncPat <*> located nixExpr
+nixLam = collectComment $ NixLam NoExtF <$> try (located nixFuncPat) <*> located nixExpr
 
 --------------------------------------------------------------------------------
 
@@ -621,10 +609,92 @@ nixTerm = do
     kwOr = reservedKw "or"
     def = located nixExpr
 
+--------------------------------------------------------------------------------
+
+operator :: Ann -> Parser (Located Ann)
+operator t = try $ located $ lexeme $ t <$ symbol' (fromJust $ showToken t) <* notFollowedBy (oneOf opString)
+
+type OpParser = Operator Parser ([AddAnn], LNixExpr Ps)
+
+appOp :: OpParser
+appOp = InfixL $ pure $ \(a1, e1) (a2, e2) -> (a1 <> a2, L (getLoc e1 `combineSrcSpans` getLoc e2) $ NixApp NoExtF e1 e2)
+
+notAppOp :: OpParser
+notAppOp =
+  Prefix $
+    ( \(L lt t) (a, e) ->
+        let l = lt `combineSrcSpans` getLoc e
+         in (AddAnn l t lt : a, L l $ NixNotApp NoExtF e)
+    )
+      <$> operator AnnEx
+
+negAppOp :: OpParser
+negAppOp =
+  Prefix $
+    ( \(L lt t) (a, e) ->
+        let l = lt `combineSrcSpans` getLoc e
+         in (AddAnn l t lt : a, L l $ NixNegApp NoExtF e)
+    )
+      <$> operator AnnNeg
+
+hasAttrOp :: OpParser
+hasAttrOp =
+  Postfix $
+    ( \(L lt t) p (a, e) ->
+        let l = lt `combineSrcSpans` getLoc p `combineSrcSpans` getLoc e
+         in (AddAnn l t lt : a, L l $ NixHasAttr NoExtF e p)
+    )
+      <$> operator AnnQuestion
+      <*> located (attrPath False)
+
+infixOp ::
+  ( Parser
+      ( ([AddAnn], Located (NixExpr Ps)) ->
+        ([AddAnn], Located (NixExpr Ps)) ->
+        ([AddAnn], Located (NixExpr Ps))
+      ) ->
+    OpParser
+  ) ->
+  BinaryOp ->
+  OpParser
+infixOp f op =
+  f $
+    ( \(L lt t) (a1, e1) (a2, e2) ->
+        let l = getLoc e1 `combineSrcSpans` lt `combineSrcSpans` getLoc e2
+         in (AddAnn l t lt : a2 <> a1, L l $ NixBinApp NoExtF op e1 e2)
+    )
+      <$> operator (opToToken op)
+
+opTable :: [[OpParser]]
+opTable =
+  [ [appOp],
+    [negAppOp],
+    [hasAttrOp],
+    [infixR OpConcat],
+    [infixL OpMul, infixL OpDiv],
+    [infixL OpAdd, infixL OpSub],
+    [notAppOp],
+    [infixOp InfixR OpUpdate],
+    [infixL OpLT, infixL OpLE, infixL OpGT, infixL OpGE],
+    [infixN OpEq, infixN OpNEq],
+    [infixL OpAnd],
+    [infixL OpOr],
+    [infixL OpImpl]
+  ]
+  where
+    infixL = infixOp InfixL
+    infixN = infixOp InfixN
+    infixR = infixOp InfixR
+
 nixOp :: Parser (NixExpr Ps)
-nixOp = undefined
+nixOp = do
+  (a, r) <- makeExprParser (([],) <$> located nixTerm) opTable
+  modify' $ \ps -> ps {psAnnotation = a <> psAnnotation ps}
+  pure $ unLoc r
+
+--------------------------------------------------------------------------------
 
 nixExpr :: Parser (NixExpr Ps)
-nixExpr = nixTerm
+nixExpr = nixLet <|> nixIf <|> nixAssert <|> nixWith <|> nixLam <|> nixOp
 
 --------------------------------------------------------------------------------

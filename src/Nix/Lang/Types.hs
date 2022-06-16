@@ -145,6 +145,9 @@ data Comment
   | LineComment Text
   deriving (Show, Eq, Data)
 
+data AddAnn = AddAnn SrcSpan Ann SrcSpan
+  deriving (Show, Eq, Data)
+
 --------------------------------------------------------------------------------
 data Ps
 
@@ -286,7 +289,7 @@ data BinaryOp
     OpOr
   | -- | @->@
     OpImpl
-  deriving (Show, Eq, Data)
+  deriving (Show, Eq, Enum, Data)
 
 --------------------------------------------------------------------------------
 data NixLit p

@@ -1,5 +1,6 @@
 module Nix.Lang.Utils where
 
+import Data.Char (isAlpha, isDigit)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -98,3 +99,41 @@ showToken = \case
 -- "assertifelsethenletininheritrecwith{}[]()=@:,....?;++//!+-*/&&||->==!=>>=<<=${}<>-''\""
 tokenString :: String
 tokenString = T.unpack . T.concat . catMaybes $ showToken <$> [AnnAssert ..]
+
+opToToken :: BinaryOp -> Ann
+opToToken = \case
+  OpConcat -> AnnConcat
+  OpMul -> AnnMul
+  OpDiv -> AnnDiv
+  OpAdd -> AnnAdd
+  OpSub -> AnnSub
+  OpUpdate -> AnnUpdate
+  OpLT -> AnnLT
+  OpLE -> AnnLE
+  OpGT -> AnnGT
+  OpGE -> AnnGE
+  OpEq -> AnnEqual
+  OpNEq -> AnnNEqual
+  OpAnd -> AnnAnd
+  OpOr -> AnnOr
+  OpImpl -> AnnImpl
+
+-- >>> opString
+-- "++*/+-//<<=>>===!=&&||->"
+opString :: String
+opString = T.unpack . T.concat . catMaybes $ showToken . opToToken <$> [OpConcat ..]
+
+reservedNames :: [Text]
+reservedNames = ["rec", "let", "in", "with", "inherit", "assert", "if", "then", "else"]
+
+isIdentChar :: Char -> Bool
+isIdentChar x = isAlpha x || isDigit x || x `elem` ['-', '_', '\'']
+
+isPathChar :: Char -> Bool
+isPathChar x = isAlpha x || isDigit x || x `elem` ['.', '_', '-', '+', '~']
+
+isSchemeChar :: Char -> Bool
+isSchemeChar x = isAlpha x || isDigit x || x `elem` ['+', '-', '.']
+
+isUriChar :: Char -> Bool
+isUriChar x = isAlpha x || isDigit x || x `elem` ['~', '!', '@', '$', '%', '&', '*', '-', '=', '_', '+', ':', ',', '.', '/', '?']
