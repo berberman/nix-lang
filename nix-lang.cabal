@@ -72,6 +72,8 @@ test-suite nix-lang-test
   import:         common-attrs
   type:           exitcode-stdio-1.0
   build-depends:
+    , directory-tree
+    , filepath
     , megaparsec
     , mtl
     , nix-lang

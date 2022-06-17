@@ -160,10 +160,10 @@ antiquote = betweenToken AnnInterpolOpen AnnInterpolClose
 legalReserved :: Parser ()
 legalReserved = lookAhead $
   void $
-    satisfy $ \x -> isSpace x || (x `notElem` T.unpack (T.concat reservedNames) && x `elem` tokenString)
+    satisfy $ \x -> not $ isIdentChar x || isPathChar x
 
 reservedKw :: Text -> Parser (Located Text)
-reservedKw x = located $ lexeme $ symbol' x <* legalReserved
+reservedKw x = try $ located $ lexeme $ symbol' x <* legalReserved
 
 --------------------------------------------------------------------------------
 
@@ -265,7 +265,9 @@ escapedChars =
     ('\\', '\\'),
     ('$', '$'),
     ('"', '"'),
-    ('\'', '\'')
+    ('\'', '\''),
+    ('.', '.'),
+    ('{', '{')
   ]
 
 escapedChar :: Parser Char
@@ -335,7 +337,7 @@ nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True True nixExpr
 --------------------------------------------------------------------------------
 
 dot :: Parser Text
-dot = lexeme $ token AnnDot False <* notFollowedBy nixPath
+dot = try $ lexeme $ token AnnDot False <* notFollowedBy nixPath
 
 attrKey :: Parser (NixAttrKey Ps)
 attrKey = dynamicString <|> dynamicInterpol <|> static
@@ -372,7 +374,7 @@ inherit =
     addAnnotation l AnnSemicolon $ getLoc d
     pure $ NixInheritBinding NoExtF b c
   where
-    kw = located $ symbol' "inherit" <* (legalReserved >> ws)
+    kw = try $ located $ symbol' "inherit" <* (legalReserved >> ws)
     set = optional $ located nixPar
     keys = many $ located attrKey
     end = located $ symbol ";"
@@ -419,7 +421,7 @@ varPat =
             pure $ NixVarPat NoExtF li
         )
 
--- Note: this is not identical to @pat $ try bodyWithLeading <|> pat bodyWithTrailing@
+-- Note: this is not identical to @pat $ try bodyWithLeading <|> bodyWithTrailing@
 setPat :: Parser (NixFuncPat Ps)
 setPat = try (pat bodyWithLeading) <|> pat bodyWithTrailing
   where
@@ -576,8 +578,8 @@ nixTerm' =
     '(' -> nixPar
     '{' -> nixSet
     '[' -> nixList
-    '/' -> nixPath
-    '<' -> nixEnvPath
+    '/' -> try nixPath
+    '<' -> try nixEnvPath
     '\"' -> nixString
     '\'' -> nixString
     x ->
@@ -593,7 +595,7 @@ nixTerm' =
 nixTerm :: Parser (NixExpr Ps)
 nixTerm = do
   t <- located nixTerm'
-  ms <- optional $ located $ try $ attrPath True
+  ms <- try $ optional $ located $ attrPath True
   case ms of
     (Just s) ->
       optional

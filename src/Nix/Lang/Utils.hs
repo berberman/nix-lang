@@ -95,11 +95,6 @@ showToken = \case
   AnnNeg -> Just "-"
   AnnEof -> Nothing
 
--- >>> tokenString
--- "assertifelsethenletininheritrecwith{}[]()=@:,....?;++//!+-*/&&||->==!=>>=<<=${}<>-''\""
-tokenString :: String
-tokenString = T.unpack . T.concat . catMaybes $ showToken <$> [AnnAssert ..]
-
 opToToken :: BinaryOp -> Ann
 opToToken = \case
   OpConcat -> AnnConcat
