@@ -593,7 +593,7 @@ nixTerm' =
 nixTerm :: Parser (NixExpr Ps)
 nixTerm = do
   t <- located nixTerm'
-  ms <- optional $ located $ attrPath True
+  ms <- optional $ located $ try $ attrPath True
   case ms of
     (Just s) ->
       optional
@@ -698,3 +698,6 @@ nixExpr :: Parser (NixExpr Ps)
 nixExpr = nixLet <|> nixIf <|> nixAssert <|> nixWith <|> nixLam <|> nixOp
 
 --------------------------------------------------------------------------------
+
+nixFile :: Parser (NixExpr Ps)
+nixFile = ws *> nixExpr <* eof
