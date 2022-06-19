@@ -16,6 +16,7 @@ import Nix.Lang.Utils
 import Text.Megaparsec hiding (State, Token, token)
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+import Text.Megaparsec.Debug (dbg)
 
 --------------------------------------------------------------------------------
 
@@ -271,7 +272,7 @@ escapedChars =
   ]
 
 escapedChar :: Parser Char
-escapedChar = choice [char code >> pure r | (code, r) <- escapedChars]
+escapedChar = choice [char code >> pure r | (code, r) <- escapedChars] <|> anySingle
 
 mergeStringPartLiteral :: [LNixStringPart Ps] -> [LNixStringPart Ps]
 mergeStringPartLiteral [] = []
@@ -297,7 +298,7 @@ stringSourceText start end escapeStart =
         many $
           try
             ( (\a b -> a <> T.singleton b)
-                <$> escapeStart <*> oneOf (fmap fst escapedChars)
+                <$> escapeStart <*> anySingle
             )
             <|> T.singleton <$> (notFollowedBy (end <|> escapeStart) >> anySingle)
 
@@ -311,14 +312,24 @@ doubleQuotesString = stringSourceText (string "\"") (string "\"") (string "\\") 
     expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleQuote AnnDoubleQuote False False $ lit src
 
 doubleSingleQuotesString :: Parser (NixExpr Ps)
-doubleSingleQuotesString = stringSourceText (string "''") (string "''") (string "''") >>= expr
+doubleSingleQuotesString = s >>= expr
   where
+    -- we can't use stringSourceText here since '' can escape ''
+    s =
+      lookAhead $
+        between (string "''") (string "''") $
+          fmap (SourceText . T.concat) $
+            many $
+              msum
+                [ try $ T.snoc <$> string "''" <*> (char '$' <|> char '\''),
+                  notFollowedBy ("''" <* notFollowedBy "\\") >> T.singleton <$> anySingle
+                ]
     escape =
       try $
         NixStringLiteral NoExtF
           <$> ( string "''"
-                  >> ( (char '\'' >> pure "''")
-                         <|> (T.singleton <$> escapedChar)
+                  >> ( ((char '\'' >> pure "''") <|> (char '$' >> pure "$"))
+                         <|> (char '\\' >> (T.singleton <$> escapedChar))
                      )
               )
     -- @$${@ does not indicate an interpolation, so we try to consume $$ first
@@ -524,7 +535,7 @@ nixIf =
     kwIf = reservedKw "if"
     kwThen = reservedKw "then"
     kwElse = reservedKw "else"
-    body = located $ (,,,,,) <$> kwIf <*> located nixOp <*> kwThen <*> located nixExpr <*> kwElse <*> located nixExpr
+    body = located $ (,,,,,) <$> kwIf <*> located nixExpr <*> kwThen <*> located nixExpr <*> kwElse <*> located nixExpr
 
 --------------------------------------------------------------------------------
 
