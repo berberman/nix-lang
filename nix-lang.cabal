@@ -59,10 +59,12 @@ library
     , megaparsec
     , mtl
     , parser-combinators
+    , prettyprinter
     , text
 
   exposed-modules:
     Nix.Lang.Parser
+    Nix.Lang.Pretty
     Nix.Lang.Types
     Nix.Lang.Utils
 
@@ -78,6 +80,7 @@ test-suite nix-lang-test
     , mtl
     , nix-lang
     , pretty-simple
+    , prettyprinter
     , text
 
   hs-source-dirs: test

@@ -16,7 +16,6 @@ import Nix.Lang.Utils
 import Text.Megaparsec hiding (State, Token, token)
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
-import Text.Megaparsec.Debug (dbg)
 
 --------------------------------------------------------------------------------
 
@@ -114,16 +113,16 @@ eatLineComment = do
     True
     False
     $ do
-      pound <- string "#"
-      (pound <>) <$> takeWhileP (Just "chars") (\x -> x /= '\n' && x /= '\r')
+      _ <- string "#"
+      takeWhileP (Just "chars") (\x -> x /= '\n' && x /= '\r')
   addPendingComment $ LineComment <$> c
 
 eatBlockComment :: Parser ()
 eatBlockComment = do
   c <- located' True False $ do
-    start <- string "/*"
+    _ <- string "/*"
     content <- manyTill anySingle $ string "*/"
-    pure $ start <> T.pack content
+    pure $ T.pack content
   addPendingComment $ BlockComment <$> c
 
 ws :: Parser ()
@@ -148,7 +147,8 @@ betweenToken :: Ann -> Ann -> Bool -> Bool -> Parser a -> Parser (Located a)
 betweenToken t1 t2 includeWhitespaceOpen includeWhitespaceClose p = do
   (L l (open, x, close)) <-
     locatedC $
-      (,,) <$> located (token t1 includeWhitespaceOpen <* unless includeWhitespaceOpen updateLoc)
+      (,,)
+        <$> located (token t1 includeWhitespaceOpen <* unless includeWhitespaceOpen updateLoc)
         <*> p
         <*> located (token t2 includeWhitespaceClose <* unless includeWhitespaceClose updateLoc)
   addAnnotation l t1 (getLoc open)
@@ -161,7 +161,8 @@ antiquote = betweenToken AnnInterpolOpen AnnInterpolClose
 legalReserved :: Parser ()
 legalReserved = lookAhead $
   void $
-    satisfy $ \x -> not $ isIdentChar x || isPathChar x
+    satisfy $
+      \x -> not $ isIdentChar x || isPathChar x
 
 reservedKw :: Text -> Parser (Located Text)
 reservedKw x = try $ located $ lexeme $ symbol' x <* legalReserved
@@ -225,7 +226,7 @@ literalPath =
                 r <- some (T.cons <$> slash <*> takeWhile1P (Just "path") isPathChar)
                 pure $ T.concat $ u : r
             )
-          <* updateLoc
+        <* updateLoc
 
 interpolPath :: Parser (NixExpr Ps)
 interpolPath =
@@ -250,7 +251,8 @@ ident = try $
     _ <- lookAhead (satisfy (\x -> isAlpha x || x == '_'))
     x <- takeWhile1P (Just "ident") isIdentChar
     when (x `elem` reservedNames) $
-      fail $ "'" <> T.unpack x <> "' is a reserved name"
+      fail $
+        "'" <> T.unpack x <> "' is a reserved name"
     pure x
 
 nixVar :: Parser (NixExpr Ps)
@@ -298,7 +300,8 @@ stringSourceText start end escapeStart =
         many $
           try
             ( (\a b -> a <> T.singleton b)
-                <$> escapeStart <*> anySingle
+                <$> escapeStart
+                <*> anySingle
             )
             <|> T.singleton <$> (notFollowedBy (end <|> escapeStart) >> anySingle)
 
@@ -519,7 +522,9 @@ nixLam = collectComment $ NixLam NoExtF <$> try (located nixFuncPat) <*> located
 nixList :: Parser (NixExpr Ps)
 nixList =
   fmap (NixList NoExtF . unLoc) $
-    betweenToken AnnOpenS AnnCloseS True True $ many $ located nixTerm
+    betweenToken AnnOpenS AnnCloseS True True $
+      many $
+        located nixTerm
 
 --------------------------------------------------------------------------------
 
@@ -625,7 +630,7 @@ nixTerm = do
 --------------------------------------------------------------------------------
 
 operator :: Ann -> Parser (Located Ann)
-operator t = try $ located $ lexeme $ t <$ symbol' (fromJust $ showToken t) <* notFollowedBy (oneOf opString)
+operator t = try $ located $ lexeme $ t <$ symbol' (fromJust $ showToken t) <* notFollowedBy (oneOf $ filter (/= '/') opString)
 
 type OpParser = Operator Parser ([AddAnn], LNixExpr Ps)
 
