@@ -432,8 +432,15 @@ type family XXNixString p
 --------------------------------------------------------------------------------
 data NixPath p
   = -- | @./a/b/c@, @/a/b/c@, @~/a/b/c@
+    --
+    -- No consecutive slashes are allowed.
     NixLiteralPath (XNixLiteralPath p) Text
-  | -- | @./${e}/b/c@...
+  | -- | @./${e}/b/c@, @./${a}-${b}/c/d${e}@
+    --
+    -- Since nix 2.13, slashes are no longer required between parts, but the behavior seems to be a bit strange:
+    -- no more than two consecutive slashes can appear before the interpolation,
+    -- while arbitrary number of slashes can appear after the interpolation.
+    -- The parser won't enforce this.
     NixInterpolPath (XNixInterpolPath p) [LNixStringPart p]
   | XNixPath !(XXNixPath p)
 

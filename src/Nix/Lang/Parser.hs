@@ -235,14 +235,13 @@ interpolPath =
     delta <- (\o' -> o' - o) <$> getOffset
     pure $ NixPath NoExtF $ L l $ NixInterpolPath (SourceText $ T.take delta i) $ mergeStringPartLiteral p
   where
-    mkList a b = [a, b]
     lit = located $ NixStringLiteral NoExtF . T.pack <$> some (notFollowedBy (char '$') >> satisfy isPathChar) <* updateLoc
-    slash' = located $ NixStringLiteral NoExtF . T.singleton <$> slash <* updateLoc
     interpol = located nixStringPartInterpol
-    path = (<>) <$> (maybeToList <$> optional (lit <|> interpol)) <*> (concat <$> some (mkList <$> slash' <*> (lit <|> interpol)))
+    slash' = located $ NixStringLiteral NoExtF . T.singleton <$> slash <* updateLoc
+    path = (<>) <$> (maybeToList <$> optional (lit <|> interpol)) <*> (some (lit <|> interpol <|> slash') <* notFollowedBy slash')
 
 nixPath :: Parser (NixExpr Ps)
-nixPath = collectComment $ lexeme $ try literalPath <|> interpolPath
+nixPath = collectComment $ lexeme $ try (literalPath <* notFollowedBy "$") <|> interpolPath
 
 --------------------------------------------------------------------------------
 ident :: Parser Text
@@ -351,7 +350,7 @@ nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True True nixExpr
 --------------------------------------------------------------------------------
 
 dot :: Parser Text
-dot = try $ lexeme $ token AnnDot False <* notFollowedBy nixPath
+dot = try $ lexeme $ token AnnDot False <* notFollowedBy "/"
 
 attrKey :: Parser (NixAttrKey Ps)
 attrKey = dynamicString <|> dynamicInterpol <|> static
@@ -611,7 +610,7 @@ nixTerm' =
 nixTerm :: Parser (NixExpr Ps)
 nixTerm = do
   t <- located nixTerm'
-  ms <- try $ optional $ located $ attrPath True
+  ms <- optional $ try $ located $ attrPath True
   case ms of
     (Just s) ->
       optional
@@ -630,7 +629,7 @@ nixTerm = do
 --------------------------------------------------------------------------------
 
 operator :: Ann -> Parser (Located Ann)
-operator t = try $ located $ lexeme $ t <$ symbol' (fromJust $ showToken t) <* notFollowedBy (oneOf $ filter (/= '/') opString)
+operator t = try $ located $ lexeme $ t <$ symbol' (fromJust $ showToken t) <* notFollowedBy (oneOf opString)
 
 type OpParser = Operator Parser ([AddAnn], LNixExpr Ps)
 
