@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Control.Monad.State.Strict (forM_, runState)
+import Control.Monad.State.Strict (forM_)
 import Data.List (dropWhileEnd)
 import qualified Data.Text.IO as T
 import Nix.Lang.Parser
@@ -11,6 +11,7 @@ import System.FilePath (takeExtension)
 import System.Process
 import Text.Megaparsec
 import Text.Pretty.Simple (pPrint)
+import Data.Functor (($>))
 
 main :: IO ()
 main = nixpkgs
@@ -19,19 +20,17 @@ nixpkgs :: IO ()
 nixpkgs = do
   src <- dropWhileEnd (== '\n') <$> readProcess "nix-instantiate" ["--eval", "-E", "<nixpkgs>"] ""
   print src
-  tree <- readDirectoryWithL (\x -> if takeExtension x == ".nix" then fmap (Just . (x,)) <$> T.readFile $ x else pure Nothing) (src <> "/pkgs/")
+  tree <- readDirectoryWithL (\x -> if takeExtension x == ".nix" then fmap (Just . (x,)) <$> T.readFile $ x else pure Nothing) (src <> "/nixos/")
   forM_ (dirTree tree) $ \case
-    Just (name, content) ->
-      let m = runParserT nixFile name content
-       in case runState m $ PState [] [] [] (1, 1) of
-            (Right _, _) -> putStrLn $ name <> " ok"
-            (Left err, _) -> putStrLn name >> putStrLn (errorBundlePretty err)
+    Just (name, content) -> case runNixParser nixFile name content of
+      (Right _, _) -> putStrLn $ name <> " ok"
+      (Left err, _) -> putStrLn name >> putStrLn (errorBundlePretty err)
     _ -> pure ()
 
-test :: (Show a, PrettyNix a) => Parser a -> IO ()
+test :: (Show a, PrettyNix a) => Parser a -> IO a
 test parser =
   T.readFile "test.nix" >>= \src ->
-    let m = runParserT parser "." src
-     in case runState m $ PState [] [] [] (1, 1) of
-          (Right x, s) -> pPrint x >> pPrint s >> putDocW 80 (prettyNix x)
-          (Left err, s) -> putStrLn (errorBundlePretty err) >> pPrint s
+    case runNixParser parser "test.nix" src of
+      (Right x, s) -> pPrint x >> putDocW 80 (prettyNix x) >> pPrint s $> x
+      (Left err, s) -> pPrint s >> error (errorBundlePretty err)
+

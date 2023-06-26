@@ -26,7 +26,7 @@ instance PrettyNix (NixLit p) where
   prettyNix (NixFloat _ float) = pretty float
   prettyNix (NixBoolean _ bool) = if bool then "true" else "false"
   prettyNix (NixNull _) = "null"
-  prettyNix _ = extErr
+  prettyNix (XNixLit _) = extErr
 
 instance PrettyNixId p => PrettyNix (NixExpr p) where
   prettyNix (NixLit _ (L _ lit)) = prettyNix lit
@@ -59,8 +59,13 @@ instance PrettyNixId p => PrettyNix (NixExpr p) where
   prettyNix (NixSelect _ (L _ x) (L _ p) mx) = prettyNix x <> "." <> prettyNix p <> alt
     where
       alt = maybe mempty ((" or " <>) . prettyNix . unLoc) mx
-  prettyNix (NixLet _ (L _ bindings) (L _ x)) = group $ vsep ["let", indent 2 (vsep $ prettyNix . unLoc <$> bindings), "in " <> prettyNix x]
-  prettyNix _ = undefined
+  prettyNix (NixLet _ (L _ bindings) (L _ x)) =
+    group $
+      vsep ["let", indent 2 (vsep $ prettyNix . unLoc <$> bindings), "in " <> prettyNix x]
+  prettyNix (NixIf _ (L _ cond) (L _ t) (L _ f)) = nestedSep ["if " <> prettyNix cond, "then " <> prettyNix t, "else " <> prettyNix f]
+  prettyNix (NixWith _ (L _ s) (L _ x)) = nestedSep ["with " <> prettyNix s <> ";", prettyNix x]
+  prettyNix (NixAssert _ (L _ s) (L _ x)) = nestedSep ["assert " <> prettyNix s <> ";", prettyNix x]
+  prettyNix (XNixExpr _) = extErr
 
 nestedSep :: [Doc ann] -> Doc ann
 nestedSep = group . nest 2 . vsep
@@ -68,7 +73,7 @@ nestedSep = group . nest 2 . vsep
 prettyStringPart :: PrettyNixId p => (Text -> Text) -> NixStringPart p -> Doc ann
 prettyStringPart escape (NixStringLiteral _ text) = pretty $ escape text
 prettyStringPart _ (NixStringInterpol _ expr) = "${" <> prettyNix (unLoc expr) <> "}"
-prettyStringPart _ _ = extErr
+prettyStringPart _ (XNixStringPart _) = extErr
 
 instance PrettyNixId p => PrettyNix (NixString p) where
   prettyNix (NixDoubleQuotesString _ parts) = dquotes $ prettyParts $ fmap unLoc parts
@@ -79,13 +84,13 @@ instance PrettyNixId p => PrettyNix (NixString p) where
     where
       prettyParts = mconcat . fmap (prettyStringPart escape)
       escape = foldr (.) id [T.replace "${" "''${", T.replace "''" "'''"]
-  prettyNix _ = extErr
+  prettyNix (XNixString _) = extErr
 
 instance PrettyNixId p => PrettyNix (NixAttrKey p) where
   prettyNix (NixStaticAttrKey _ (L _ x)) = prettyNixId (Proxy @p) x
   prettyNix (NixDynamicStringAttrKey _ parts) = prettyNix $ NixDoubleQuotesString undefined parts
   prettyNix (NixDynamicInterpolAttrKey _ expr) = "${" <> prettyNix (unLoc expr) <> "}"
-  prettyNix _ = extErr
+  prettyNix (XNixNixAttrKey _) = extErr
 
 instance PrettyNixId p => PrettyNix (NixAttrPath p) where
   prettyNix (NixAttrPath keys) = hcat . punctuate dot $ prettyNix . unLoc <$> keys
@@ -93,7 +98,7 @@ instance PrettyNixId p => PrettyNix (NixAttrPath p) where
 instance PrettyNixId p => PrettyNix (NixPath p) where
   prettyNix (NixLiteralPath _ p) = pretty p
   prettyNix (NixInterpolPath _ parts) = hcat $ prettyStringPart id . unLoc <$> parts
-  prettyNix _ = extErr
+  prettyNix (XNixPath _) = extErr
 
 instance PrettyNixId p => PrettyNix (NixBinding p) where
   prettyNix (NixNormalBinding _ (L _ p) (L _ x)) = hsep [prettyNix p, "=", prettyNix x] <> ";"
@@ -101,7 +106,7 @@ instance PrettyNixId p => PrettyNix (NixBinding p) where
     where
       prettyScope = maybe mempty (parens . prettyNix . unLoc) mScope
       prettyNames = align $ fillSep $ prettyNix . unLoc <$> names
-  prettyNix _ = extErr
+  prettyNix (XNixBinding _) = extErr
 
 instance PrettyNixId p => PrettyNix (NixSetPatBinding p) where
   prettyNix (NixSetPatBinding {..}) = prettyNixId (Proxy @p) (unLoc nspbVar) <> prettyDefault
@@ -124,4 +129,4 @@ instance PrettyNixId p => PrettyNix (NixFuncPat p) where
     where
       prettyAs = maybe mempty (prettyNix . unLoc) mAs
       prettyParams = encloseSep "{ " " }" ", " ((prettyNix . unLoc <$> params) <> ["..." | ellipses == NixSetPatIsEllipses])
-  prettyNix _ = extErr
+  prettyNix (XNixFuncPat _) = extErr

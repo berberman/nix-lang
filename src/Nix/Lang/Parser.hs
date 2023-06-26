@@ -29,6 +29,16 @@ data PState = PState
 
 type Parser = ParsecT Void Text (State PState)
 
+mkPState :: PState
+mkPState = PState [] [] [] (1, 1)
+
+runNixParser :: Parser a -> String -> Text -> (Either (ParseErrorBundle Text Void) a, PState)
+runNixParser p f t =
+  let m = runParserT p f t
+   in case runState m mkPState of
+        (Left err, s) -> (Left err, s)
+        (Right x, s) -> (Right x, s)
+
 --------------------------------------------------------------------------------
 
 addAnnotation ::
@@ -52,6 +62,7 @@ addPendingComment c = modify' $ \ps ->
     { psPendingComments = c : psPendingComments ps
     }
 
+{-# INLINE sourcePosToLoc #-}
 sourcePosToLoc :: SourcePos -> (Int, Int)
 sourcePosToLoc pos = (unPos (sourceLine pos), unPos (sourceColumn pos))
 
@@ -350,7 +361,7 @@ nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True True nixExpr
 --------------------------------------------------------------------------------
 
 dot :: Parser Text
-dot = try $ lexeme $ token AnnDot False <* notFollowedBy "/"
+dot = try $ lexeme $ token AnnDot False <* notFollowedBy ("/" <|> ".")
 
 attrKey :: Parser (NixAttrKey Ps)
 attrKey = dynamicString <|> dynamicInterpol <|> static
