@@ -1,14 +1,14 @@
 cabal-version:   3.0
 name:            nix-lang
-version:         0.1.0
-synopsis:        Nix language processing library
+version:         0.0.0
+synopsis:        A toy parser for Nix language
 description:     See README for details.
 category:        Nix
 license:         BSD-3-Clause
 license-file:    LICENSE
 author:          berberman
 maintainer:      berberman <berberman@yandex.com>
-copyright:       Copyright (c) berberman 2022
+copyright:       Copyright (c) berberman 2022-2023
 stability:       alpha
 homepage:        https://github.com/berberman/nix-lang
 bug-reports:     https://github.com/berberman/nix-lang/issues
@@ -59,10 +59,12 @@ library
     , megaparsec
     , mtl
     , parser-combinators
+    , prettyprinter
     , text
 
   exposed-modules:
     Nix.Lang.Parser
+    Nix.Lang.Pretty
     Nix.Lang.Types
     Nix.Lang.Utils
 
@@ -78,6 +80,8 @@ test-suite nix-lang-test
     , mtl
     , nix-lang
     , pretty-simple
+    , prettyprinter
+    , process
     , text
 
   hs-source-dirs: test

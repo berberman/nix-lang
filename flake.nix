@@ -9,7 +9,7 @@
         hpkgs = pkgs.haskellPackages;
       in with pkgs.haskell.lib; rec {
         defaultPackage = hpkgs.callCabal2nix "nix-lang" ./. { };
-        devShell = addBuildTools defaultPackage
-          (with hpkgs; [ haskell-language-server cabal-install ]);
+        devShell = (addBuildTools defaultPackage
+          (with hpkgs; [ haskell-language-server cabal-install ])).envFunc { };
       });
 }

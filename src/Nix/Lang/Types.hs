@@ -19,10 +19,12 @@ data SrcSpan = SrcSpan
 
 instance Show SrcSpan where
   show SrcSpan {..} =
-    srcSpanFilename <> ":"
+    srcSpanFilename
+      <> ":"
       <> if srcSpanStartLine == srcSpanEndLine
         then
-          show srcSpanEndLine <> ":"
+          show srcSpanEndLine
+            <> ":"
             <> if srcSpanStartColumn == srcSpanEndColumn
               then show srcSpanEndColumn
               else show srcSpanStartColumn <> "-" <> show srcSpanEndColumn
@@ -149,7 +151,7 @@ data AddAnn = AddAnn SrcSpan Ann SrcSpan
   deriving (Show, Eq, Data)
 
 --------------------------------------------------------------------------------
-data Ps
+data Ps deriving (Data)
 
 newtype SourceText = SourceText Text
   deriving (Eq, Show, Ord, Data)
@@ -430,8 +432,15 @@ type family XXNixString p
 --------------------------------------------------------------------------------
 data NixPath p
   = -- | @./a/b/c@, @/a/b/c@, @~/a/b/c@
+    --
+    -- No consecutive slashes are allowed.
     NixLiteralPath (XNixLiteralPath p) Text
-  | -- | @./${e}/b/c@...
+  | -- | @./${e}/b/c@, @./${a}-${b}/c/d${e}@
+    --
+    -- Since nix 2.13, slashes are no longer required between parts, but the behavior seems to be a bit strange:
+    -- no more than two consecutive slashes can appear before the interpolation,
+    -- while arbitrary number of slashes can appear after the interpolation.
+    -- The parser won't enforce this.
     NixInterpolPath (XNixInterpolPath p) [LNixStringPart p]
   | XNixPath !(XXNixPath p)
 
@@ -521,8 +530,7 @@ data NixBinding p
   = -- | @x = e;@
     NixNormalBinding (XNixNormalBinding p) (LNixAttrPath p) (LNixExpr p)
   | -- | @inherit a@, @inherit (a) b c@, @inherit (a) "b" ${"c"}@
-    -- Note: Dynamic keys like @${"a" + "b"}@ are not allowed by nix runtime, but only parsed.
-    -- However, @${"a"}@ can be parsed and evaluated. For us, we accept them all.
+    -- Note: Dynamic keys like @${"a" + "b"}@ are allowed since nix 2.13
     NixInheritBinding (XNixInheritBinding p) (Maybe (LNixExpr p)) [LNixAttrKey p]
   | XNixBinding !(XXNixBinding p)
 
@@ -655,7 +663,7 @@ data NixExpr p
     NixVar (XNixVar p) (LNixId p)
   | -- | See 'NixLit'
     NixLit (XNixLit p) (LNixLit p)
-  | -- | Parenthesized expr
+  | -- | Parenthesized expr - the pretty printer won't add parens
     NixPar (XNixPar p) (LNixExpr p)
   | -- | See 'NixString'
     NixString (XNixString p) (LNixString p)

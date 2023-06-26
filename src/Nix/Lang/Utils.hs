@@ -1,7 +1,7 @@
 module Nix.Lang.Utils where
 
 import Data.Char (isAlpha, isDigit)
-import Data.Maybe (catMaybes)
+import Data.Maybe (fromJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.Types
@@ -21,8 +21,8 @@ isSubspanOf ::
 isSubspanOf src parent
   | srcSpanFilename parent /= srcSpanFilename src = False
   | otherwise =
-    (srcSpanStartLine parent, srcSpanStartColumn parent) <= (srcSpanStartLine src, srcSpanStartColumn src)
-      && (srcSpanEndLine parent, srcSpanEndLine parent) >= (srcSpanEndLine src, srcSpanEndLine src)
+      (srcSpanStartLine parent, srcSpanStartColumn parent) <= (srcSpanStartLine src, srcSpanStartColumn src)
+        && (srcSpanEndLine parent, srcSpanEndLine parent) >= (srcSpanEndLine src, srcSpanEndLine src)
 
 combineSrcSpans :: SrcSpan -> SrcSpan -> SrcSpan
 combineSrcSpans span1 span2 = SrcSpan f sl sc el ec
@@ -113,10 +113,13 @@ opToToken = \case
   OpOr -> AnnOr
   OpImpl -> AnnImpl
 
+showBinOP :: BinaryOp -> Text
+showBinOP = fromJust . showToken . opToToken
+
 -- >>> opString
 -- "++*/+-//<<=>>===!=&&||->"
 opString :: String
-opString = T.unpack . T.concat . catMaybes $ showToken . opToToken <$> [OpConcat ..]
+opString = T.unpack . T.concat $ showBinOP <$> [OpConcat ..]
 
 reservedNames :: [Text]
 reservedNames = ["rec", "let", "in", "with", "inherit", "assert", "if", "then", "else"]
