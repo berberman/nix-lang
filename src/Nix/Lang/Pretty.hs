@@ -102,10 +102,11 @@ instance PrettyNixId p => PrettyNix (NixPath p) where
 
 instance PrettyNixId p => PrettyNix (NixBinding p) where
   prettyNix (NixNormalBinding _ (L _ p) (L _ x)) = hsep [prettyNix p, "=", prettyNix x] <> ";"
-  prettyNix (NixInheritBinding _ mScope names) = "inherit" <+> prettyScope <> prettyNames <> ";"
+  prettyNix (NixInheritBinding _ mScope names) = "inherit" <> prettyScope <> prettyNames names <> ";"
     where
-      prettyScope = maybe mempty (parens . prettyNix . unLoc) mScope
-      prettyNames = align $ fillSep $ prettyNix . unLoc <$> names
+      prettyScope = maybe mempty ((" " <>) . prettyNix . unLoc) mScope
+      prettyNames [] = mempty
+      prettyNames ns = " " <> (align . fillSep $ prettyNix . unLoc <$> ns)
   prettyNix (XNixBinding _) = extErr
 
 instance PrettyNixId p => PrettyNix (NixSetPatBinding p) where

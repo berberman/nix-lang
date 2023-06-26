@@ -11,10 +11,9 @@ import System.FilePath (takeExtension)
 import System.Process
 import Text.Megaparsec
 import Text.Pretty.Simple (pPrint)
-import Data.Functor (($>))
 
 main :: IO ()
-main = nixpkgs
+main = test nixFile "test/sample.nix"
 
 nixpkgs :: IO ()
 nixpkgs = do
@@ -27,10 +26,9 @@ nixpkgs = do
       (Left err, _) -> putStrLn name >> putStrLn (errorBundlePretty err)
     _ -> pure ()
 
-test :: (Show a, PrettyNix a) => Parser a -> IO a
-test parser =
-  T.readFile "test.nix" >>= \src ->
-    case runNixParser parser "test.nix" src of
-      (Right x, s) -> pPrint x >> putDocW 80 (prettyNix x) >> pPrint s $> x
+test :: (Show a, PrettyNix a) => Parser a -> FilePath -> IO ()
+test parser fp =
+  T.readFile fp >>= \src ->
+    case runNixParser parser fp src of
+      (Right x, s) -> pPrint x >> putDocW 80 (prettyNix x) >> pPrint s
       (Left err, s) -> pPrint s >> error (errorBundlePretty err)
-

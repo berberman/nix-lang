@@ -244,15 +244,20 @@ interpolPath =
   -- TODO: the entire input got copied here
   (,,) <$> getInput <*> getOffset <*> located path >>= \(i, o, L l p) -> do
     delta <- (\o' -> o' - o) <$> getOffset
-    pure $ NixPath NoExtF $ L l $ NixInterpolPath (SourceText $ T.take delta i) $ mergeStringPartLiteral p
+    let parts = mergeStringPartLiteral p
+    guard $ slashInFirstPart parts
+    pure $ NixPath NoExtF $ L l $ NixInterpolPath (SourceText $ T.take delta i) parts
   where
+    -- at least one slash before interpolation
+    slashInFirstPart (L _ (NixStringLiteral _ s) : _) = T.elem '/' s
+    slashInFirstPart _ = False
     lit = located $ NixStringLiteral NoExtF . T.pack <$> some (notFollowedBy (char '$') >> satisfy isPathChar) <* updateLoc
     interpol = located nixStringPartInterpol
     slash' = located $ NixStringLiteral NoExtF . T.singleton <$> slash <* updateLoc
     path = (<>) <$> (maybeToList <$> optional (lit <|> interpol)) <*> (some (lit <|> interpol <|> slash') <* notFollowedBy slash')
 
 nixPath :: Parser (NixExpr Ps)
-nixPath = collectComment $ lexeme $ try (literalPath <* notFollowedBy "$") <|> interpolPath
+nixPath = collectComment $ lexeme $ try (literalPath <* notFollowedBy "$") <|> (interpolPath <* notFollowedBy "*")
 
 --------------------------------------------------------------------------------
 ident :: Parser Text
@@ -702,7 +707,7 @@ opTable =
     [infixL OpMul, infixL OpDiv],
     [infixL OpAdd, infixL OpSub],
     [notAppOp],
-    [infixOp InfixR OpUpdate],
+    [infixR OpUpdate],
     [infixL OpLT, infixL OpLE, infixL OpGT, infixL OpGE],
     [infixN OpEq, infixN OpNEq],
     [infixL OpAnd],

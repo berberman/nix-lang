@@ -15,6 +15,7 @@ bug-reports:     https://github.com/berberman/nix-lang/issues
 extra-doc-files:
   CHANGELOG.md
   README.md
+  test/sample.nix
 
 common common-attrs
   build-depends:      base >=4.10 && <5
