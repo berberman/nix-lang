@@ -4,6 +4,8 @@ import Data.Char (isAlpha, isDigit)
 import Data.Maybe (fromJust)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Nix.Lang.Annotation
+import Nix.Lang.Span
 import Nix.Lang.Types
 
 mkSrcSpan :: String -> (Int, Int) -> (Int, Int) -> SrcSpan

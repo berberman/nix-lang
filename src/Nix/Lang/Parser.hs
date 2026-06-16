@@ -3,7 +3,7 @@
 
 module Nix.Lang.Parser where
 
-import Control.Monad (forM, forM_, guard, msum, unless, void, when)
+import Control.Monad (forM, guard, msum, unless, void, when)
 import Control.Monad.Combinators.Expr
 import Control.Monad.State.Strict
 import Data.Char (isAlpha, isDigit, isSpace)
@@ -12,6 +12,8 @@ import Data.Maybe (fromJust, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
+import Nix.Lang.Annotation
+import Nix.Lang.Span
 import Nix.Lang.Types
 import Nix.Lang.Utils
 import Text.Megaparsec hiding (State, Token, token)
@@ -21,9 +23,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 --------------------------------------------------------------------------------
 
 data PState = PState
-  { psPendingComments :: [Located Comment],
-    psComments :: [(SrcSpan, [Located Comment])],
-    psAnnotation :: [AddAnn],
+  { psCommentQueue :: [Located Comment],
     psLoc :: (Int, Int)
   }
   deriving (Show, Eq, Data)
@@ -31,37 +31,67 @@ data PState = PState
 type Parser = ParsecT Void Text (State PState)
 
 mkPState :: PState
-mkPState = PState [] [] [] (1, 1)
+mkPState = PState [] (1, 1)
 
 runNixParser :: Parser a -> String -> Text -> (Either (ParseErrorBundle Text Void) a, PState)
-runNixParser p f t =
-  let m = runParserT p f t
-   in case runState m mkPState of
-        (Left err, s) -> (Left err, s)
-        (Right x, s) -> (Right x, s)
+runNixParser p f t = runState (runParserT p f t) mkPState
 
 --------------------------------------------------------------------------------
 
-addAnnotation ::
-  -- | Smallest AST the annotation belongs to
-  SrcSpan ->
-  -- | Annotation
-  Ann ->
-  -- | Span of the annotation
-  SrcSpan ->
-  Parser ()
-addAnnotation lt a ls = modify' $ \ps ->
-  ps
-    { psAnnotation = AddAnn lt a ls : psAnnotation ps
-    }
+takeCommentsBefore :: SrcSpan -> Parser [Located Comment]
+takeCommentsBefore s = state $ \ps@PState {..} ->
+  let (inside, outside) = foldr step ([], []) psCommentQueue
+      step c@(L l _) (ins, outs)
+        | commentEndsBefore l s = (c : ins, outs)
+        | otherwise = (ins, c : outs)
+   in (reverse inside, ps {psCommentQueue = outside})
+
+takeRemainingComments :: Parser [Located Comment]
+takeRemainingComments = state $ \ps@PState {..} ->
+  (reverse psCommentQueue, ps {psCommentQueue = []})
+
+mkAnnCommon :: SrcSpan -> Parser AnnCommon
+mkAnnCommon l = do
+  comments <- takeCommentsBefore l
+  pure $ AnnCommon (NodeComments comments []) (AnnSpan l)
+
+mkEmptyAnnCommon :: SrcSpan -> AnnCommon
+mkEmptyAnnCommon l = AnnCommon emptyComments (AnnSpan l)
 
 addPendingComment ::
   Located Comment ->
   Parser ()
 addPendingComment c = modify' $ \ps ->
   ps
-    { psPendingComments = c : psPendingComments ps
+    { psCommentQueue = c : psCommentQueue ps
     }
+
+commentEndsBefore :: SrcSpan -> SrcSpan -> Bool
+commentEndsBefore comment anchor
+  | srcSpanFilename comment /= srcSpanFilename anchor = False
+  | otherwise =
+      (srcSpanEndLine comment, srcSpanEndColumn comment)
+        <= (srcSpanStartLine anchor, srcSpanStartColumn anchor)
+
+attachFollowingComments :: (HasAnnCommon a) => [Located Comment] -> a -> a
+attachFollowingComments comments ann
+  | null comments = ann
+  | otherwise =
+      let common = getAnnCommon ann
+          nodeComments = acComments common
+          common' =
+            common
+              { acComments =
+                  nodeComments
+                    { followingComments = followingComments nodeComments <> comments
+                    }
+              }
+       in setAnnCommon common' ann
+
+attachCommentsBeforeAnchor :: (HasAnnCommon a) => SrcSpan -> a -> Parser a
+attachCommentsBeforeAnchor anchor ann = do
+  comments <- takeCommentsBefore anchor
+  pure $ attachFollowingComments comments ann
 
 {-# INLINE sourcePosToLoc #-}
 sourcePosToLoc :: SourcePos -> (Int, Int)
@@ -73,9 +103,6 @@ putLoc loc = modify' $ \ps -> ps {psLoc = loc}
 -- | Invariant: the use of located without consuming whitespace must manually updateLoc
 updateLoc :: Parser ()
 updateLoc = getSourcePos >>= putLoc . sourcePosToLoc
-
-collectComment :: Parser a -> Parser a
-collectComment = fmap unLoc . locatedC
 
 --------------------------------------------------------------------------------
 
@@ -92,32 +119,14 @@ located' includeWhiteSpace allocateComments p = do
           (sourceName start)
           (unPos $ sourceLine start, unPos $ sourceColumn start)
           end
-  when allocateComments $ do
-    (l, c) <- sourcePosToLoc <$> getSourcePos
-    allocatePendingComments s {srcSpanEndLine = l, srcSpanEndColumn = c} s
+  when allocateComments $ pure ()
   pure $ L s x
-
-allocatePendingComments ::
-  -- | Span of ast extended to whitespace
-  SrcSpan ->
-  -- | Span of ast
-  SrcSpan ->
-  Parser ()
-allocatePendingComments s s' = modify' $ \ps@PState {..} ->
-  let (before, rest) = break (\(L l _) -> l `isSubspanOf` s) psPendingComments
-      (middle, after) = break (\(L l _) -> not $ l `isSubspanOf` s) rest
-      pending = before ++ after
-      comments = [(s', middle) | not (null middle)]
-   in ps
-        { psPendingComments = pending,
-          psComments = comments <> psComments
-        }
 
 located :: Parser a -> Parser (Located a)
 located = located' False False
 
 locatedC :: Parser a -> Parser (Located a)
-locatedC = located' False True
+locatedC = located
 
 eatLineComment :: Parser ()
 eatLineComment = do
@@ -157,26 +166,25 @@ token tk includeWhitespace = (if includeWhitespace then symbol else symbol') $ f
 
 betweenToken :: Ann -> Ann -> Bool -> Bool -> Parser a -> Parser (Located a)
 betweenToken t1 t2 includeWhitespaceOpen includeWhitespaceClose p = do
-  (L l (open, x, close)) <-
+  (L l (_, x, _)) <-
     locatedC $
       (,,)
         <$> located (token t1 includeWhitespaceOpen <* unless includeWhitespaceOpen updateLoc)
         <*> p
         <*> located (token t2 includeWhitespaceClose <* unless includeWhitespaceClose updateLoc)
-  addAnnotation l t1 (getLoc open)
-  addAnnotation l t2 (getLoc close)
   pure $ L l x
 
 antiquote :: Bool -> Bool -> Parser a -> Parser (Located a)
 antiquote = betweenToken AnnInterpolOpen AnnInterpolClose
 
 legalReserved :: Parser ()
-legalReserved = lookAhead $
-  void eof
-    <|> void
-      ( satisfy $
-          \x -> not $ isIdentChar x || isPathChar x
-      )
+legalReserved =
+  lookAhead $
+    void eof
+      <|> void
+        ( satisfy $
+            \x -> not $ isIdentChar x || isPathChar x
+        )
 
 reservedKw :: Text -> Parser (Located Text)
 reservedKw x = try $ located $ lexeme $ symbol' x <* legalReserved
@@ -188,35 +196,41 @@ litBoolean = litTrue <|> litFalse
   where
     litTrue = do
       (L l _) <- reservedKw "true"
-      pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF True
+      common <- mkAnnCommon l
+      pure $ NixLit common $ L l $ NixBoolean NoExtF True
     litFalse = do
       (L l _) <- reservedKw "false"
-      pure $ NixLit NoExtF $ L l $ NixBoolean NoExtF False
+      common <- mkAnnCommon l
+      pure $ NixLit common $ L l $ NixBoolean NoExtF False
 
 litNull :: Parser (NixExpr Ps)
 litNull = do
   (L l _) <- reservedKw "null"
-  pure $ NixLit NoExtF $ L l $ NixNull NoExtF
+  common <- mkAnnCommon l
+  pure $ NixLit common $ L l $ NixNull NoExtF
 
 litFloat :: Parser (NixExpr Ps)
 litFloat = do
   (L l f) <- located $ lexeme L.float
-  pure $ NixLit NoExtF $ L l $ NixFloat NoExtF f
+  common <- mkAnnCommon l
+  pure $ NixLit common $ L l $ NixFloat NoExtF f
 
 litInteger :: Parser (NixExpr Ps)
 litInteger = do
   (L l f) <- located $ lexeme L.decimal
-  pure $ NixLit NoExtF $ L l $ NixInteger NoExtF f
+  common <- mkAnnCommon l
+  pure $ NixLit common $ L l $ NixInteger NoExtF f
 
 litUri :: Parser (NixExpr Ps)
-litUri = fmap (NixLit NoExtF) $
-  located $
-    lexeme $ do
-      h <- letterChar
-      scheme <- takeWhileP (Just "scheme") isSchemeChar
-      colon <- char ':'
-      uri <- takeWhile1P (Just "uri") isUriChar
-      pure $ NixUri NoExtF $ T.cons h scheme <> T.cons colon uri
+litUri = do
+  (L l uri) <- located $ lexeme $ do
+    h <- letterChar
+    scheme <- takeWhileP (Just "scheme") isSchemeChar
+    colon <- char ':'
+    rest <- takeWhile1P (Just "uri") isUriChar
+    pure $ T.cons h scheme <> T.cons colon rest
+  common <- mkAnnCommon l
+  pure $ NixLit common $ L l $ NixUri NoExtF uri
 
 --------------------------------------------------------------------------------
 slash :: Parser Char
@@ -224,30 +238,34 @@ slash = char '/' <* notFollowedBy (satisfy $ \x -> x == '/' || isSpace x || x ==
 
 nixEnvPath :: Parser (NixExpr Ps)
 nixEnvPath =
-  collectComment $
-    lexeme $
-      fmap (NixEnvPath NoExtF) $
-        betweenToken AnnEnvPathOpen AnnEnvPathClose False False $ do
-          lookAhead (satisfy (/= '/')) >> T.pack <$> many (satisfy isPathChar <|> slash)
+  lexeme $
+    betweenToken AnnEnvPathOpen AnnEnvPathClose False False (lookAhead (satisfy (/= '/')) >> T.pack <$> many (satisfy isPathChar <|> slash)) >>= \(L l p) -> do
+      common <- mkAnnCommon l
+      let ann = AnnEnvPathNode common (parsedAnnToken AnnEnvPathOpen l) (parsedAnnToken AnnEnvPathClose l)
+      pure $ NixEnvPath ann (L l p)
 
 literalPath :: Parser (NixExpr Ps)
 literalPath =
-  fmap (NixPath NoExtF) $
-    locatedC $
-      NixLiteralPath NoExtF
+  locatedC
+    ( NixLiteralPath NoExtF
         <$> ( do
                 u <- takeWhileP (Just "path") isPathChar
                 r <- some (T.cons <$> slash <*> takeWhile1P (Just "path") isPathChar)
                 pure $ T.concat $ u : r
             )
         <* updateLoc
+    )
+    >>= \(L l p) -> do
+      common <- mkAnnCommon l
+      pure $ NixPath (AnnPathNode common) (L l p)
 
 interpolPath :: Parser (NixExpr Ps)
 interpolPath =
   located (match path) >>= \(L l (src, p)) -> do
     let parts = mergeStringPartLiteral p
     guard $ slashInFirstPart parts
-    pure $ NixPath NoExtF $ L l $ NixInterpolPath (SourceText src) parts
+    common <- mkAnnCommon l
+    pure $ NixPath (AnnPathNode common) $ L l $ NixInterpolPath (SourceText src) parts
   where
     -- at least one slash before interpolation
     slashInFirstPart (L _ (NixStringLiteral _ s) : _) = T.elem '/' s
@@ -258,7 +276,7 @@ interpolPath =
     path = (<>) <$> (maybeToList <$> optional (lit <|> interpol)) <*> (some (lit <|> interpol <|> slash') <* notFollowedBy slash')
 
 nixPath :: Parser (NixExpr Ps)
-nixPath = collectComment $ lexeme $ try (literalPath <* notFollowedBy "$") <|> (interpolPath <* notFollowedBy "*")
+nixPath = lexeme $ try (literalPath <* notFollowedBy "$") <|> (interpolPath <* notFollowedBy "*")
 
 pathStartsHere :: Parser Bool
 pathStartsHere =
@@ -288,7 +306,10 @@ ident = try $
     pure x
 
 nixVar :: Parser (NixExpr Ps)
-nixVar = NixVar NoExtF <$> located ident
+nixVar =
+  located ident >>= \(L l x) -> do
+    common <- mkAnnCommon l
+    pure $ NixVar common (L l x)
 
 --------------------------------------------------------------------------------
 
@@ -335,16 +356,21 @@ stringSourceText start end escapeStart =
                 <$> escapeStart
                 <*> anySingle
             )
-            <|> T.singleton <$> (notFollowedBy (end <|> escapeStart) >> anySingle)
+            <|> T.singleton
+            <$> (notFollowedBy (end <|> escapeStart) >> anySingle)
 
 doubleQuotesString :: Parser (NixExpr Ps)
-doubleQuotesString = stringSourceText (string "\"") (string "\"") (string "\\") >>= expr
+doubleQuotesString =
+  betweenToken AnnDoubleQuote AnnDoubleQuote False False lit >>= \(L l s) -> do
+    common <- mkAnnCommon l
+    pure $ NixString (AnnStringNode common) (L l s)
   where
     escape = NixStringLiteral NoExtF . T.singleton <$> (char '\\' >> escapedChar)
     -- @$${@ does not indicate an interpolation, so we try to consume $$ first
     parts = many (located $ ((NixStringLiteral NoExtF <$> string "$$") <|> nixStringPartInterpol <|> nixStringPartLiteral "\"" "\\" escape) <* updateLoc)
-    lit src = fmap (NixDoubleQuotesString src . mergeStringPartLiteral) parts
-    expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleQuote AnnDoubleQuote False False $ lit src
+    lit = do
+      (src, parsedParts) <- match parts
+      pure $ NixDoubleQuotesString (SourceText src) (mergeStringPartLiteral parsedParts)
 
 doubleSingleQuotesString :: Parser (NixExpr Ps)
 doubleSingleQuotesString = s >>= expr
@@ -370,15 +396,25 @@ doubleSingleQuotesString = s >>= expr
     -- @$${@ does not indicate an interpolation, so we try to consume $$ first
     parts = many (located $ ((NixStringLiteral NoExtF <$> string "$$") <|> nixStringPartInterpol <|> nixStringPartLiteral "''" "''" escape) <* updateLoc)
     lit src = fmap (NixDoubleSingleQuotesString src . mergeStringPartLiteral) parts
-    expr src = fmap (NixString NoExtF) $ betweenToken AnnDoubleSingleQuotes AnnDoubleSingleQuotes False False $ lit src
+    expr src =
+      betweenToken AnnDoubleSingleQuotes AnnDoubleSingleQuotes False False (lit src) >>= \(L l str) -> do
+        common <- mkAnnCommon l
+        pure $ NixString (AnnStringNode common) (L l str)
 
 nixString :: Parser (NixExpr Ps)
-nixString = collectComment $ lexeme $ doubleQuotesString <|> doubleSingleQuotesString
+nixString = lexeme $ doubleQuotesString <|> doubleSingleQuotesString
 
 --------------------------------------------------------------------------------
 
 nixPar :: Parser (NixExpr Ps)
-nixPar = NixPar NoExtF <$> betweenToken AnnOpenP AnnCloseP True True nixExpr
+nixPar =
+  locatedC ((,,) <$> open <*> located nixExpr <*> close) >>= \(L l (lp, x, rp)) -> do
+    common <- mkAnnCommon l
+    ann <- attachCommentsBeforeAnchor (getLoc rp) $ AnnParNode common (parsedAnnToken AnnOpenP (getLoc lp)) (parsedAnnToken AnnCloseP (getLoc rp))
+    pure $ NixPar ann x
+  where
+    open = located (symbol' "(" <* updateLoc) <* ws
+    close = located (symbol' ")" <* updateLoc) <* ws
 
 --------------------------------------------------------------------------------
 
@@ -408,17 +444,17 @@ attrPath dotFirst =
         pure (fmap getLoc $ mdot <> rd, h : ra)
     )
     >>= \(L l (ld, a)) -> do
-      forM_ ld $ addAnnotation l AnnDot
-      pure $ NixAttrPath a
+      common <- mkAnnCommon l
+      pure $ NixAttrPath (AnnAttrPath common (parsedAnnToken AnnDot <$> ld)) a
 
 --------------------------------------------------------------------------------
 
 inherit :: Parser (NixBinding Ps)
 inherit =
   locatedC ((,,,) <$> kw <*> set <*> keys <*> end) >>= \(L l (a, b, c, d)) -> do
-    addAnnotation l AnnInherit $ getLoc a
-    addAnnotation l AnnSemicolon $ getLoc d
-    pure $ NixInheritBinding NoExtF b c
+    common <- mkAnnCommon l
+    let ann = AnnInheritBinding common (parsedAnnToken AnnInherit (getLoc a)) (parsedAnnToken AnnSemicolon (getLoc d))
+    pure $ NixInheritBinding ann b c
   where
     kw = try $ located $ symbol' "inherit" <* (legalReserved >> ws)
     set = optional $ located nixPar
@@ -428,9 +464,9 @@ inherit =
 normal :: Parser (NixBinding Ps)
 normal =
   locatedC ((,,,) <$> path <*> eq <*> expr <*> end) >>= \(L l (a, b, c, d)) -> do
-    addAnnotation l AnnEqual $ getLoc b
-    addAnnotation l AnnSemicolon $ getLoc d
-    pure $ NixNormalBinding NoExtF a c
+    common <- mkAnnCommon l
+    let ann = AnnNormalBinding common (parsedAnnToken AnnAssign (getLoc b)) (parsedAnnToken AnnSemicolon (getLoc d))
+    pure $ NixNormalBinding ann a c
   where
     path = located $ attrPath False
     eq = located $ symbol "="
@@ -445,36 +481,47 @@ nixBinding = inherit <|> normal
 nixSet :: Parser (NixExpr Ps)
 nixSet =
   locatedC ((,,,) <$> kw <*> open <*> bindings <*> close) >>= \(L l (a, b, c, d)) -> do
-    maybe (pure ()) (addAnnotation l AnnRec . getLoc) a
-    addAnnotation l AnnOpenC $ getLoc b
-    addAnnotation l AnnCloseC $ getLoc d
-    pure $ NixSet NoExtF (maybe NixSetNonRecursive (const NixSetRecursive) a) c
+    common <- mkAnnCommon l
+    ann <-
+      attachCommentsBeforeAnchor (getLoc d) $
+        AnnSet common (parsedAnnToken AnnRec . getLoc <$> a) (parsedAnnToken AnnOpenC (getLoc b)) (parsedAnnToken AnnCloseC (getLoc d))
+    pure $ NixSet ann (maybe NixSetNonRecursive (const NixSetRecursive) a) c
   where
-    -- TODO: why do we need these updateLoc?
     kw = optional $ reservedKw "rec"
-    open = located $ symbol "{" <* updateLoc
-    close = located $ symbol "}"
-    bindings = located $ many $ located nixBinding <* updateLoc
+    open = located (symbol' "{" <* updateLoc) <* ws
+    close = located (symbol' "}" <* updateLoc) <* ws
+    bindings = located' True False $ many $ located nixBinding <* updateLoc
 
 --------------------------------------------------------------------------------
 
 varPat :: Parser (NixFuncPat Ps)
 varPat =
   (try litUri >> fail "unexpected uri")
-    <|> ( located ((,) <$> located ident <*> located (symbol ":")) >>= \(L l (li, lc)) -> do
-            addAnnotation l AnnId $ getLoc li
-            addAnnotation l AnnColon $ getLoc lc
-            pure $ NixVarPat NoExtF li
+    <|> ( located ident >>= \li -> do
+            let l = getLoc li
+            common <- mkAnnCommon l
+            let ann = AnnVarPat common (getLoc li)
+            pure $ NixVarPat ann li
         )
 
 -- Note: this is not identical to @pat $ try bodyWithLeading <|> bodyWithTrailing@
 setPat :: Parser (NixFuncPat Ps)
 setPat = try (pat bodyWithLeading) <|> pat bodyWithTrailing
   where
-    leadingAs = located $ (\i a -> (a, NixSetPatAs NixSetPatAsLeading i)) <$> located ident <*> located (void $ symbol "@")
-    trailingAs = located $ (\a i -> (a, NixSetPatAs NixSetPatAsTrailing i)) <$> located (void $ symbol "@") <*> located ident
+    leadingAs :: Parser (Located (Located (), NixSetPatAs Ps))
+    leadingAs = do
+      L l (i, a) <- located $ (,) <$> located ident <*> located (void $ symbol "@")
+      common <- mkAnnCommon l
+      pure $ L l (a, NixSetPatAs (AnnSetPatAs common (parsedAnnToken AnnAt (getLoc a))) NixSetPatAsLeading i)
+    trailingAs :: Parser (Located (Located (), NixSetPatAs Ps))
+    trailingAs = do
+      L l (a, i) <- located $ (,) <$> located (void $ symbol "@") <*> located ident
+      common <- mkAnnCommon l
+      pure $ L l (a, NixSetPatAs (AnnSetPatAs common (parsedAnnToken AnnAt (getLoc a))) NixSetPatAsTrailing i)
     bind = located $ (,) <$> located ident <*> optional ((,) <$> located (void $ symbol "?") <*> located nixExpr)
     ellipsis = located $ void $ symbol "..."
+    openBrace = located (symbol' "{" <* updateLoc) <* ws
+    closeBrace = located (symbol' "}" <* updateLoc) <* ws
     -- ([bind], [comma])
     go ::
       ([Located (Located Text, Maybe (Located (), LNixExpr Ps))], [Located ()]) ->
@@ -488,86 +535,98 @@ setPat = try (pat bodyWithLeading) <|> pat bodyWithTrailing
           option (bs1, cs1, Nothing) $ do
             c <- located $ void $ symbol ","
             go (bs1, cs1 <> [c])
-    -- TODO: maybe it would be better to attach braces to the span of the outermost ast
-    body = betweenToken AnnOpenC AnnCloseC True True $ go mempty
-    bodyWithLeading = (,) <$> optional leadingAs <*> body
+    body ::
+      Parser
+        ( Located
+            ( Located Text,
+              ( [Located (Located Text, Maybe (Located (), LNixExpr Ps))],
+                [Located ()],
+                Maybe (Located ())
+              ),
+              Located Text
+            )
+        )
+    body = locatedC $ (,,) <$> openBrace <*> go mempty <*> closeBrace
+    bodyWithLeading = (,) <$> (Just <$> leadingAs) <*> body
     bodyWithTrailing = flip (,) <$> body <*> optional trailingAs
     pat ::
       -- (asPattern, [bind], [comma], ellipsis)
       Parser
         ( Maybe (Located (Located (), NixSetPatAs Ps)),
           Located
-            ( [Located (Located Text, Maybe (Located (), LNixExpr Ps))],
-              [Located ()],
-              Maybe (Located ())
+            ( Located Text,
+              ( [Located (Located Text, Maybe (Located (), LNixExpr Ps))],
+                [Located ()],
+                Maybe (Located ())
+              ),
+              Located Text
             )
         ) ->
       Parser (NixFuncPat Ps)
     pat x = do
-      (L l ((mas, L lBody (bs, cs, me)), L lc _)) <- located $ (,) <$> x <*> located (symbol ":")
+      (L l (mas, L _lBody (lo, (bs, cs, me), lcBody))) <- located x
 
       -- as pattern
       ras <- case mas of
-        Just (L al (aal, as)) -> do
-          -- add as to the span of the pattern
-          addAnnotation al AnnAt $ getLoc aal
+        Just (L al (_, as)) -> do
           pure $ Just $ L al as
         Nothing -> pure Nothing
 
-      -- commas
-      forM_ (zip (getLoc <$> bs) (getLoc <$> cs)) $ \(bl, cl) ->
-        -- add commas to the span of each term
-        addAnnotation bl AnnComma cl
-
       -- ellipsis
       re <- case me of
-        Just (L el _) -> do
-          -- add ellipsis to the span of the braces
-          addAnnotation lBody AnnEllipsis el
-          pure NixSetPatIsEllipses
+        Just _ -> pure NixSetPatIsEllipses
         _ -> pure NixSetPatNotEllipses
 
       -- bindings
       rb <- forM bs $ \(L lb (i, mDefault)) -> do
-        rDef <- case mDefault of
-          Just (q, def) -> do
-            -- add question mark to the span of each binding
-            addAnnotation lb AnnQuestion $ getLoc q
-            pure $ Just def
-          _ -> pure Nothing
-        addAnnotation lb AnnId $ getLoc i
-        pure $ L lb $ NixSetPatBinding i rDef
+        (rQuestion, rDef) <- case mDefault of
+          Just (q, def) -> pure (Just (parsedAnnToken AnnQuestion (getLoc q)), Just def)
+          _ -> pure (Nothing, Nothing)
+        commonBinding <- mkAnnCommon lb
+        pure $ L lb $ NixSetPatBinding (AnnSetPatBinding commonBinding rQuestion) i rDef
 
-      -- colon after the pattern
-      addAnnotation l AnnColon lc
-
-      pure $ NixSetPat NoExtF re ras rb
+      common <- mkAnnCommon l
+      let ann =
+            AnnSetPatNode
+              common
+              (parsedAnnToken AnnOpenC (getLoc lo))
+              (parsedAnnToken AnnCloseC (getLoc lcBody))
+              (parsedAnnToken AnnEllipsis . getLoc <$> me)
+              (parsedAnnToken AnnComma . getLoc <$> cs)
+      pure $ NixSetPat ann re ras rb
 
 nixFuncPat :: Parser (NixFuncPat Ps)
-nixFuncPat = try varPat <|> setPat
+nixFuncPat = try setPat <|> varPat
 
 nixLam :: Parser (NixExpr Ps)
-nixLam = collectComment $ NixLam NoExtF <$> try (located nixFuncPat) <*> located nixExpr
+nixLam = try $ do
+  pat <- located nixFuncPat
+  colon <- located (symbol ":")
+  body <- located nixExpr
+  let l = getLoc pat `combineSrcSpans` getLoc body
+  common <- mkAnnCommon l
+  pure $ NixLam (AnnLamNode common (parsedAnnToken AnnColon (getLoc colon))) pat body
 
 --------------------------------------------------------------------------------
 
 nixList :: Parser (NixExpr Ps)
 nixList =
-  fmap (NixList NoExtF . unLoc) $
-    betweenToken AnnOpenS AnnCloseS True True $
-      many $
-        located nixTerm
+  locatedC ((,,) <$> open <*> many (located nixTerm) <*> close) >>= \(L l (ls, xs, rs)) -> do
+    common <- mkAnnCommon l
+    ann <- attachCommentsBeforeAnchor (getLoc rs) $ AnnListNode common (parsedAnnToken AnnOpenS (getLoc ls)) (parsedAnnToken AnnCloseS (getLoc rs))
+    pure $ NixList ann xs
+  where
+    open = located (symbol' "[" <* updateLoc) <* ws
+    close = located (symbol' "]" <* updateLoc) <* ws
 
 --------------------------------------------------------------------------------
 
 nixIf :: Parser (NixExpr Ps)
 nixIf =
-  collectComment $
-    body >>= \(L l (kif, op, kth, e1, kel, e2)) -> do
-      addAnnotation l AnnIf $ getLoc kif
-      addAnnotation l AnnThen $ getLoc kth
-      addAnnotation l AnnElse $ getLoc kel
-      pure $ NixIf NoExtF op e1 e2
+  body >>= \(L l (kif, op, kth, e1, kel, e2)) -> do
+    common <- mkAnnCommon l
+    let ann = AnnIfNode common (parsedAnnToken AnnIf (getLoc kif)) (parsedAnnToken AnnThen (getLoc kth)) (parsedAnnToken AnnElse (getLoc kel))
+    pure $ NixIf ann op e1 e2
   where
     kwIf = reservedKw "if"
     kwThen = reservedKw "then"
@@ -578,11 +637,10 @@ nixIf =
 
 nixWith :: Parser (NixExpr Ps)
 nixWith =
-  collectComment $
-    body >>= \(L l (kwi, e1, semicolon, e2)) -> do
-      addAnnotation l AnnWith $ getLoc kwi
-      addAnnotation l AnnSemicolon $ getLoc semicolon
-      pure $ NixWith NoExtF e1 e2
+  body >>= \(L l (kwi, e1, semicolon, e2)) -> do
+    common <- mkAnnCommon l
+    let ann = AnnWithNode common (parsedAnnToken AnnWith (getLoc kwi)) (parsedAnnToken AnnSemicolon (getLoc semicolon))
+    pure $ NixWith ann e1 e2
   where
     kw = reservedKw "with"
     sem = located $ symbol ";"
@@ -592,11 +650,10 @@ nixWith =
 
 nixAssert :: Parser (NixExpr Ps)
 nixAssert =
-  collectComment $
-    body >>= \(L l (kas, e1, semicolon, e2)) -> do
-      addAnnotation l AnnAssert $ getLoc kas
-      addAnnotation l AnnSemicolon $ getLoc semicolon
-      pure $ NixAssert NoExtF e1 e2
+  body >>= \(L l (kas, e1, semicolon, e2)) -> do
+    common <- mkAnnCommon l
+    let ann = AnnAssertNode common (parsedAnnToken AnnAssert (getLoc kas)) (parsedAnnToken AnnSemicolon (getLoc semicolon))
+    pure $ NixAssert ann e1 e2
   where
     ka = reservedKw "assert"
     sem = located $ symbol ";"
@@ -606,11 +663,10 @@ nixAssert =
 
 nixLet :: Parser (NixExpr Ps)
 nixLet =
-  collectComment $
-    body >>= \(L l (kl, bs, ki, e)) -> do
-      addAnnotation l AnnLet $ getLoc kl
-      addAnnotation l AnnIn $ getLoc ki
-      pure $ NixLet NoExtF bs e
+  body >>= \(L l (kl, bs, ki, e)) -> do
+    common <- mkAnnCommon l
+    let ann = AnnLetNode common (parsedAnnToken AnnLet (getLoc kl)) (parsedAnnToken AnnIn (getLoc ki))
+    pure $ NixLet ann bs e
   where
     kLet = reservedKw "let"
     kIn = reservedKw "in"
@@ -669,13 +725,16 @@ nixTerm = do
   case ms of
     (Just s) ->
       optional
-        ( located $ (,) <$> kwOr <*> def
-        )
+        (located $ (,) <$> kwOr <*> def)
         >>= \case
           Just (L bl (o, d)) -> do
-            addAnnotation (getLoc s `combineSrcSpans` bl) AnnOr $ getLoc o
-            pure $ NixSelect NoExtF t s $ Just d
-          _ -> pure $ NixSelect NoExtF t s Nothing
+            common <- mkAnnCommon (getLoc s `combineSrcSpans` bl)
+            let ann = AnnSelect common (Just (parsedAnnToken AnnOr (getLoc o)))
+            pure $ NixSelect ann t s $ Just d
+          _ -> do
+            common <- mkAnnCommon (getLoc t `combineSrcSpans` getLoc s)
+            let ann = AnnSelect common Nothing
+            pure $ NixSelect ann t s Nothing
     Nothing -> pure $ unLoc t
   where
     kwOr = reservedKw "or"
@@ -686,44 +745,49 @@ nixTerm = do
 operator :: Ann -> Parser (Located Ann)
 operator t = try $ located $ lexeme $ t <$ symbol' (fromJust $ showToken t) <* notFollowedBy (oneOf opString)
 
-type OpParser = Operator Parser ([AddAnn], LNixExpr Ps)
+type OpParser = Operator Parser (LNixExpr Ps)
 
 appOp :: OpParser
-appOp = InfixL $ pure $ \(a1, e1) (a2, e2) -> (a1 <> a2, L (getLoc e1 `combineSrcSpans` getLoc e2) $ NixApp NoExtF e1 e2)
+appOp = InfixL $ pure $ \e1 e2 ->
+  let l = getLoc e1 `combineSrcSpans` getLoc e2
+   in L l $ NixApp (AnnAppNode (mkEmptyAnnCommon l)) e1 e2
 
 notAppOp :: OpParser
 notAppOp =
   Prefix $
-    ( \(L lt t) (a, e) ->
+    ( \(L lt _) e ->
         let l = lt `combineSrcSpans` getLoc e
-         in (AddAnn l t lt : a, L l $ NixNotApp NoExtF e)
+            ann = AnnPrefixNode (mkEmptyAnnCommon l) (parsedAnnToken AnnEx lt)
+         in L l $ NixNotApp ann e
     )
       <$> operator AnnEx
 
 negAppOp :: OpParser
 negAppOp =
   Prefix $
-    ( \(L lt t) (a, e) ->
+    ( \(L lt _) e ->
         let l = lt `combineSrcSpans` getLoc e
-         in (AddAnn l t lt : a, L l $ NixNegApp NoExtF e)
+            ann = AnnPrefixNode (mkEmptyAnnCommon l) (parsedAnnToken AnnNeg lt)
+         in L l $ NixNegApp ann e
     )
       <$> operator AnnNeg
 
 hasAttrOp :: OpParser
 hasAttrOp =
   Postfix $
-    ( \(L lt t) p (a, e) ->
+    ( \(L lt _) p e ->
         let l = lt `combineSrcSpans` getLoc p `combineSrcSpans` getLoc e
-         in (AddAnn l t lt : a, L l $ NixHasAttr NoExtF e p)
+            ann = AnnHasAttr (mkEmptyAnnCommon l) (parsedAnnToken AnnQuestion lt)
+         in L l $ NixHasAttr ann e p
     )
       <$> operator AnnQuestion
       <*> located (attrPath False)
 
 infixOp ::
   ( Parser
-      ( ([AddAnn], Located (NixExpr Ps)) ->
-        ([AddAnn], Located (NixExpr Ps)) ->
-        ([AddAnn], Located (NixExpr Ps))
+      ( Located (NixExpr Ps) ->
+        Located (NixExpr Ps) ->
+        Located (NixExpr Ps)
       ) ->
     OpParser
   ) ->
@@ -731,9 +795,10 @@ infixOp ::
   OpParser
 infixOp f op =
   f $
-    ( \(L lt t) (a1, e1) (a2, e2) ->
+    ( \(L lt _) e1 e2 ->
         let l = getLoc e1 `combineSrcSpans` lt `combineSrcSpans` getLoc e2
-         in (AddAnn l t lt : a2 <> a1, L l $ NixBinApp NoExtF op e1 e2)
+            ann = AnnBinAppNode (mkEmptyAnnCommon l) (parsedAnnToken (opToToken op) lt)
+         in L l $ NixBinApp ann op e1 e2
     )
       <$> operator (opToToken op)
 
@@ -759,10 +824,7 @@ opTable =
     infixR = infixOp InfixR
 
 nixOp :: Parser (NixExpr Ps)
-nixOp = do
-  (a, r) <- makeExprParser (([],) <$> located nixTerm) opTable
-  modify' $ \ps -> ps {psAnnotation = a <> psAnnotation ps}
-  pure $ unLoc r
+nixOp = unLoc <$> makeExprParser (located nixTerm) opTable
 
 --------------------------------------------------------------------------------
 
@@ -772,4 +834,31 @@ nixExpr = nixLet <|> nixIf <|> nixAssert <|> nixWith <|> nixLam <|> nixOp
 --------------------------------------------------------------------------------
 
 nixFile :: Parser (NixExpr Ps)
-nixFile = ws *> nixExpr <* eof
+nixFile = do
+  ws
+  expr <- nixExpr
+  trailing <- takeRemainingComments
+  eof
+  pure $ attachRootTrailingComments trailing expr
+
+attachRootTrailingComments :: [Located Comment] -> NixExpr Ps -> NixExpr Ps
+attachRootTrailingComments comments = \case
+  NixVar ann name -> NixVar (attachFollowingComments comments ann) name
+  NixLit ann lit -> NixLit (attachFollowingComments comments ann) lit
+  NixPar ann expr -> NixPar (attachFollowingComments comments ann) expr
+  NixString ann str -> NixString (attachFollowingComments comments ann) str
+  NixPath ann path -> NixPath (attachFollowingComments comments ann) path
+  NixEnvPath ann path -> NixEnvPath (attachFollowingComments comments ann) path
+  NixLam ann pat body -> NixLam (attachFollowingComments comments ann) pat body
+  NixApp ann fun arg -> NixApp (attachFollowingComments comments ann) fun arg
+  NixBinApp ann op lhs rhs -> NixBinApp (attachFollowingComments comments ann) op lhs rhs
+  NixNotApp ann expr -> NixNotApp (attachFollowingComments comments ann) expr
+  NixNegApp ann expr -> NixNegApp (attachFollowingComments comments ann) expr
+  NixList ann xs -> NixList (attachFollowingComments comments ann) xs
+  NixSet ann kind bindings -> NixSet (attachFollowingComments comments ann) kind bindings
+  NixLet ann bindings expr -> NixLet (attachFollowingComments comments ann) bindings expr
+  NixHasAttr ann expr path -> NixHasAttr (attachFollowingComments comments ann) expr path
+  NixSelect ann expr path def -> NixSelect (attachFollowingComments comments ann) expr path def
+  NixIf ann cond thenExpr elseExpr -> NixIf (attachFollowingComments comments ann) cond thenExpr elseExpr
+  NixWith ann scope expr -> NixWith (attachFollowingComments comments ann) scope expr
+  NixAssert ann assertion expr -> NixAssert (attachFollowingComments comments ann) assertion expr

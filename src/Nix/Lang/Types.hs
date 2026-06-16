@@ -7,148 +7,8 @@ module Nix.Lang.Types where
 
 import Data.Data (Data)
 import Data.Text (Text)
-
-data SrcSpan = SrcSpan
-  { srcSpanFilename :: String,
-    srcSpanStartLine :: Int,
-    srcSpanStartColumn :: Int,
-    srcSpanEndLine :: Int,
-    srcSpanEndColumn :: Int
-  }
-  deriving (Eq, Data)
-
-instance Show SrcSpan where
-  show SrcSpan {..} =
-    srcSpanFilename
-      <> ":"
-      <> if srcSpanStartLine == srcSpanEndLine
-        then
-          show srcSpanEndLine
-            <> ":"
-            <> if srcSpanStartColumn == srcSpanEndColumn
-              then show srcSpanEndColumn
-              else show srcSpanStartColumn <> "-" <> show srcSpanEndColumn
-        else show (srcSpanStartLine, srcSpanStartColumn) <> "-" <> show (srcSpanEndLine, srcSpanEndColumn)
-
-instance Ord SrcSpan where
-  a `compare` b = case (srcSpanStartLine a, srcSpanStartColumn a)
-    `compare` (srcSpanStartLine b, srcSpanStartColumn b) of
-    EQ -> (srcSpanEndLine a, srcSpanEndColumn a) `compare` (srcSpanEndLine b, srcSpanEndColumn b)
-    x -> x
-
-data Located a = L SrcSpan a
-  deriving (Eq, Show, Ord, Data, Functor, Foldable, Traversable)
-
---------------------------------------------------------------------------------
-
-data Ann
-  = -- | @assert@
-    AnnAssert
-  | -- | @if@
-    AnnIf
-  | -- | @else@
-    AnnElse
-  | -- | @then@
-    AnnThen
-  | -- | @let@
-    AnnLet
-  | -- | @in@
-    AnnIn
-  | -- | @inherit@
-    AnnInherit
-  | -- | @rec@
-    AnnRec
-  | -- | @with@
-    AnnWith
-  | -- | @{@
-    AnnOpenC
-  | -- | @}@
-    AnnCloseC
-  | -- | @[@
-    AnnOpenS
-  | -- | @]@
-    AnnCloseS
-  | -- | @(@
-    AnnOpenP
-  | -- | @)@
-    AnnCloseP
-  | -- | @=@
-    AnnAssign
-  | -- | @@@
-    AnnAt
-  | -- | @:@
-    AnnColon
-  | -- | @,@
-    AnnComma
-  | -- | @.@
-    AnnDot
-  | -- | @...@
-    AnnEllipsis
-  | -- | @?@
-    AnnQuestion
-  | -- | @;@
-    AnnSemicolon
-  | -- | @++@
-    AnnConcat
-  | -- | @//@
-    AnnUpdate
-  | -- | @!@
-    AnnEx
-  | -- | @+@
-    AnnAdd
-  | -- | @-@
-    AnnSub
-  | -- | @*@
-    AnnMul
-  | -- | @/@
-    AnnDiv
-  | -- | @&&@
-    AnnAnd
-  | -- | @||@
-    AnnOr
-  | -- | @->@
-    AnnImpl
-  | -- | @==@
-    AnnEqual
-  | -- | @!=@
-    AnnNEqual
-  | -- | @>@
-    AnnGT
-  | -- | @>=@
-    AnnGE
-  | -- | @<@
-    AnnLT
-  | -- | @<=@
-    AnnLE
-  | -- | Identifier
-    AnnId
-  | -- | Value
-    AnnVal
-  | -- | @${@
-    AnnInterpolOpen
-  | -- | @$}@
-    AnnInterpolClose
-  | -- | @<@
-    AnnEnvPathOpen
-  | -- | @>@
-    AnnEnvPathClose
-  | -- | @-@
-    AnnNeg
-  | -- | @''@
-    AnnDoubleSingleQuotes
-  | -- | @"@
-    AnnDoubleQuote
-  | -- | End of file
-    AnnEof
-  deriving (Show, Eq, Enum, Data)
-
-data Comment
-  = BlockComment Text
-  | LineComment Text
-  deriving (Show, Eq, Data)
-
-data AddAnn = AddAnn SrcSpan Ann SrcSpan
-  deriving (Show, Eq, Data)
+import Nix.Lang.Annotation
+import Nix.Lang.Span
 
 --------------------------------------------------------------------------------
 data Ps deriving (Data)
@@ -203,57 +63,63 @@ type instance XNixDynamicInterpolAttrKey Ps = SourceText
 
 type instance XXNixAttrKey Ps = NoExtC
 
-type instance XNixNormalBinding Ps = NoExtF
+type instance XNixAttrPath Ps = AnnAttrPath
 
-type instance XNixInheritBinding Ps = NoExtF
+type instance XNixNormalBinding Ps = AnnNormalBinding
+
+type instance XNixInheritBinding Ps = AnnInheritBinding
 
 type instance XXNixBinding Ps = NoExtC
 
-type instance XNixVarPat Ps = NoExtF
+type instance XNixVarPat Ps = AnnVarPat
 
-type instance XNixSetPat Ps = NoExtF
+type instance XNixSetPat Ps = AnnSetPatNode
+
+type instance XNixSetPatAs Ps = AnnSetPatAs
+
+type instance XNixSetPatBinding Ps = AnnSetPatBinding
 
 type instance XXNixFuncPat Ps = NoExtC
 
-type instance XNixVar Ps = NoExtF
+type instance XNixVar Ps = AnnCommon
 
-type instance XNixLit Ps = NoExtF
+type instance XNixLit Ps = AnnCommon
 
-type instance XNixPar Ps = NoExtF
+type instance XNixPar Ps = AnnParNode
 
 type instance XXNixLit Ps = NoExtC
 
-type instance XNixString Ps = NoExtF
+type instance XNixString Ps = AnnStringNode
 
-type instance XNixPath Ps = NoExtF
+type instance XNixPath Ps = AnnPathNode
 
-type instance XNixEnvPath Ps = NoExtF
+type instance XNixEnvPath Ps = AnnEnvPathNode
 
-type instance XNixLam Ps = NoExtF
+type instance XNixLam Ps = AnnLamNode
 
-type instance XNixApp Ps = NoExtF
+type instance XNixApp Ps = AnnAppNode
 
-type instance XNixBinApp Ps = NoExtF
+type instance XNixBinApp Ps = AnnBinAppNode
 
-type instance XNixNotApp Ps = NoExtF
+type instance XNixNotApp Ps = AnnPrefixNode
 
-type instance XNixNegApp Ps = NoExtF
+type instance XNixNegApp Ps = AnnPrefixNode
 
-type instance XNixList Ps = NoExtF
+type instance XNixList Ps = AnnListNode
 
-type instance XNixSet Ps = NoExtF
+type instance XNixSet Ps = AnnSet
 
-type instance XNixLet Ps = NoExtF
+type instance XNixLet Ps = AnnLetNode
 
-type instance XNixHasAttr Ps = NoExtF
+type instance XNixHasAttr Ps = AnnHasAttr
 
-type instance XNixSelect Ps = NoExtF
+type instance XNixSelect Ps = AnnSelect
 
-type instance XNixIf Ps = NoExtF
+type instance XNixIf Ps = AnnIfNode
 
-type instance XNixWith Ps = NoExtF
+type instance XNixWith Ps = AnnWithNode
 
-type instance XNixAssert Ps = NoExtF
+type instance XNixAssert Ps = AnnAssertNode
 
 type instance XXNixExpr Ps = NoExtC
 
@@ -516,13 +382,15 @@ type family XXNixAttrKey p
 --------------------------------------------------------------------------------
 
 -- | @a.b.${c}."d"."${"e"}"@
-newtype NixAttrPath p = NixAttrPath [LNixAttrKey p]
+data NixAttrPath p = NixAttrPath (XNixAttrPath p) [LNixAttrKey p]
 
-deriving instance (Data p, Data (NixAttrKey p)) => Data (NixAttrPath p)
+deriving instance (Data p, Data (XNixAttrPath p), Data (NixAttrKey p)) => Data (NixAttrPath p)
 
-deriving instance (Show (NixAttrKey p)) => Show (NixAttrPath p)
+deriving instance (Show (XNixAttrPath p), Show (NixAttrKey p)) => Show (NixAttrPath p)
 
 type LNixAttrPath p = Located (NixAttrPath p)
+
+type family XNixAttrPath p
 
 --------------------------------------------------------------------------------
 
@@ -578,29 +446,31 @@ data NixSetPatAsLocation
 --------------------------------------------------------------------------------
 
 data NixSetPatAs p = NixSetPatAs
-  { nspaLocation :: NixSetPatAsLocation,
+  { nspaAnn :: XNixSetPatAs p,
+    nspaLocation :: NixSetPatAsLocation,
     -- | @x@{...}@
     nspaVar :: LNixId p
   }
 
-deriving instance (Data p, Data (NixId p)) => Data (NixSetPatAs p)
+deriving instance (Data p, Data (XNixSetPatAs p), Data (NixId p)) => Data (NixSetPatAs p)
 
-deriving instance (Show (NixId p)) => Show (NixSetPatAs p)
+deriving instance (Show (XNixSetPatAs p), Show (NixId p)) => Show (NixSetPatAs p)
 
 type LNixSetPatAs p = Located (NixSetPatAs p)
 
 --------------------------------------------------------------------------------
 
 data NixSetPatBinding p = NixSetPatBinding
-  { -- | @{a}@
+  { nspbAnn :: XNixSetPatBinding p,
+    -- | @{a}@
     nspbVar :: LNixId p,
     -- | @{a ? b}@
     nspbDefault :: Maybe (LNixExpr p)
   }
 
-deriving instance (Data p, Data (NixId p), Data (NixExpr p)) => Data (NixSetPatBinding p)
+deriving instance (Data p, Data (XNixSetPatBinding p), Data (NixId p), Data (NixExpr p)) => Data (NixSetPatBinding p)
 
-deriving instance (Show (NixId p), Show (NixExpr p)) => Show (NixSetPatBinding p)
+deriving instance (Show (XNixSetPatBinding p), Show (NixId p), Show (NixExpr p)) => Show (NixSetPatBinding p)
 
 type LNixSetPatBinding p = Located (NixSetPatBinding p)
 
@@ -645,6 +515,10 @@ type LNixFuncPat p = Located (NixFuncPat p)
 type family XNixVarPat p
 
 type family XNixSetPat p
+
+type family XNixSetPatAs p
+
+type family XNixSetPatBinding p
 
 type family XXNixFuncPat p
 

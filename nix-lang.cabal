@@ -61,11 +61,17 @@ library
     , mtl
     , parser-combinators
     , prettyprinter
+    , syb
     , text
 
   exposed-modules:
+    Nix.Lang.Annotation
+    Nix.Lang.ExactPrint
+    Nix.Lang.ExactPrint.Edit
+    Nix.Lang.ExactPrint.Operations
+    Nix.Lang.Outputable
     Nix.Lang.Parser
-    Nix.Lang.Pretty
+    Nix.Lang.Span
     Nix.Lang.Types
     Nix.Lang.Utils
 
@@ -77,6 +83,7 @@ test-suite nix-lang-test
   build-depends:
     , megaparsec
     , nix-lang
+    , syb
     , tasty
     , tasty-hunit
     , text
