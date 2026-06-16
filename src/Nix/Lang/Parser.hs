@@ -3,6 +3,7 @@
 
 module Nix.Lang.Parser where
 
+import Control.Monad (forM, forM_, guard, msum, unless, void, when)
 import Control.Monad.Combinators.Expr
 import Control.Monad.State.Strict
 import Data.Char (isAlpha, isDigit, isSpace)
@@ -171,9 +172,11 @@ antiquote = betweenToken AnnInterpolOpen AnnInterpolClose
 
 legalReserved :: Parser ()
 legalReserved = lookAhead $
-  void $
-    satisfy $
-      \x -> not $ isIdentChar x || isPathChar x
+  void eof
+    <|> void
+      ( satisfy $
+          \x -> not $ isIdentChar x || isPathChar x
+      )
 
 reservedKw :: Text -> Parser (Located Text)
 reservedKw x = try $ located $ lexeme $ symbol' x <* legalReserved
@@ -241,12 +244,10 @@ literalPath =
 
 interpolPath :: Parser (NixExpr Ps)
 interpolPath =
-  -- TODO: the entire input got copied here
-  (,,) <$> getInput <*> getOffset <*> located path >>= \(i, o, L l p) -> do
-    delta <- (\o' -> o' - o) <$> getOffset
+  located (match path) >>= \(L l (src, p)) -> do
     let parts = mergeStringPartLiteral p
     guard $ slashInFirstPart parts
-    pure $ NixPath NoExtF $ L l $ NixInterpolPath (SourceText $ T.take delta i) parts
+    pure $ NixPath NoExtF $ L l $ NixInterpolPath (SourceText src) parts
   where
     -- at least one slash before interpolation
     slashInFirstPart (L _ (NixStringLiteral _ s) : _) = T.elem '/' s
@@ -258,6 +259,22 @@ interpolPath =
 
 nixPath :: Parser (NixExpr Ps)
 nixPath = collectComment $ lexeme $ try (literalPath <* notFollowedBy "$") <|> (interpolPath <* notFollowedBy "*")
+
+pathStartsHere :: Parser Bool
+pathStartsHere =
+  option False . try . lookAhead $ do
+    _ <- takeWhile1P (Just "path prefix") isPathChar
+    void slash
+    pure True
+
+uriStartsHere :: Parser Bool
+uriStartsHere =
+  option False . try . lookAhead $ do
+    _ <- letterChar
+    _ <- takeWhileP (Just "scheme") isSchemeChar
+    _ <- char ':'
+    _ <- takeWhile1P (Just "uri") isUriChar
+    pure True
 
 --------------------------------------------------------------------------------
 ident :: Parser Text
@@ -579,7 +596,7 @@ nixAssert =
     body >>= \(L l (kas, e1, semicolon, e2)) -> do
       addAnnotation l AnnAssert $ getLoc kas
       addAnnotation l AnnSemicolon $ getLoc semicolon
-      pure $ NixWith NoExtF e1 e2
+      pure $ NixAssert NoExtF e1 e2
   where
     ka = reservedKw "assert"
     sem = located $ symbol ";"
@@ -613,14 +630,36 @@ nixTerm' =
     '<' -> try nixEnvPath
     '\"' -> nixString
     '\'' -> nixString
-    x ->
-      msum $
-        [nixSet | x == 'r']
-          <> [try nixPath | isPathChar x]
-          <> [try litFloat <|> litInteger | isDigit x]
-          <> [litNull | x == 'n']
-          <> [litBoolean | x == 't' || x == 'f']
-          <> [try litUri, nixVar]
+    '.' -> nixPath
+    '~' -> nixPath
+    '_' -> do
+      isPath <- pathStartsHere
+      if isPath then try nixPath <|> nixVar else nixVar
+    x
+      | isDigit x -> do
+          isPath <- pathStartsHere
+          if isPath
+            then nixPath
+            else try litFloat <|> litInteger
+      | isAlpha x -> do
+          isPath <- pathStartsHere
+          if isPath
+            then if x == 'r' then try nixSet <|> try nixPath <|> alphaLike x else try nixPath <|> alphaLike x
+            else alphaLike x
+    _ -> fail "unexpected token"
+  where
+    alphaLike x
+      | x == 'r' = try nixSet <|> keywordOrUriOrVar x
+      | otherwise = keywordOrUriOrVar x
+
+    keywordOrUriOrVar x
+      | x == 'n' = litNull <|> uriOrVar
+      | x == 't' || x == 'f' = litBoolean <|> uriOrVar
+      | otherwise = uriOrVar
+
+    uriOrVar = do
+      isUri <- uriStartsHere
+      if isUri then litUri else nixVar
 
 -- | Term is term' with selection
 nixTerm :: Parser (NixExpr Ps)

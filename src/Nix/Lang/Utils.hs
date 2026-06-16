@@ -22,7 +22,7 @@ isSubspanOf src parent
   | srcSpanFilename parent /= srcSpanFilename src = False
   | otherwise =
       (srcSpanStartLine parent, srcSpanStartColumn parent) <= (srcSpanStartLine src, srcSpanStartColumn src)
-        && (srcSpanEndLine parent, srcSpanEndLine parent) >= (srcSpanEndLine src, srcSpanEndLine src)
+        && (srcSpanEndLine parent, srcSpanEndColumn parent) >= (srcSpanEndLine src, srcSpanEndColumn src)
 
 combineSrcSpans :: SrcSpan -> SrcSpan -> SrcSpan
 combineSrcSpans span1 span2 = SrcSpan f sl sc el ec

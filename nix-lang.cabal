@@ -8,7 +8,7 @@ license:         BSD-3-Clause
 license-file:    LICENSE
 author:          berberman
 maintainer:      berberman <berberman@yandex.com>
-copyright:       Copyright (c) berberman 2022-2023
+copyright:       Copyright (c) berberman 2022-2026
 stability:       alpha
 homepage:        https://github.com/berberman/nix-lang
 bug-reports:     https://github.com/berberman/nix-lang/issues
@@ -31,7 +31,6 @@ common common-attrs
     ghc-options: -fhide-source-paths
 
   default-extensions:
-    NoStarIsType
     BangPatterns
     ConstraintKinds
     DataKinds
@@ -45,6 +44,7 @@ common common-attrs
     FunctionalDependencies
     KindSignatures
     LambdaCase
+    NoStarIsType
     OverloadedStrings
     RecordWildCards
     ScopedTypeVariables
@@ -75,14 +75,10 @@ test-suite nix-lang-test
   import:         common-attrs
   type:           exitcode-stdio-1.0
   build-depends:
-    , directory-tree
-    , filepath
     , megaparsec
-    , mtl
     , nix-lang
-    , pretty-simple
-    , prettyprinter
-    , process
+    , tasty
+    , tasty-hunit
     , text
 
   hs-source-dirs: test
