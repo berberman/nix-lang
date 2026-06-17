@@ -1,0 +1,19 @@
+on: [push]
+name: nix
+jobs:
+  haddock:
+    runs-on: ubuntu-latest
+    name: Nix build
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run nix build
+        run: nix build
+
+      - name: Run cabal test
+        run: |
+          nix develop --command cabal update
+          nix develop --command cabal test

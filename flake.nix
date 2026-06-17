@@ -19,6 +19,7 @@
       in
       with pkgs;
       {
+        packages.default = haskellPackages.nix-lang;
         devShells.default =
           with haskell.lib;
           (addBuildTools (haskellPackages.nix-lang) [
