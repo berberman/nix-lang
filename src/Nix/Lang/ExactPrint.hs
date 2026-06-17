@@ -173,7 +173,7 @@ emitWrappedNode target ann body = do
 
 --------------------------------------------------------------------------------
 
-instance ExactPrint (NixExpr Ps) where
+instance ExactPrint Expr where
   exactPrintM = \case
     NixVar ann ident -> emitWrappedNode (getLoc ident) ann $ emitAtSpan (getLoc ident) (unLoc ident)
     NixLit ann lit -> emitWrappedNode (getLoc lit) ann $ emitGapToSpan (getLoc lit) >> exactPrintM (unLoc lit)
@@ -196,25 +196,25 @@ instance ExactPrint (NixExpr Ps) where
     NixWith ann (L _ scope) (L _ x) -> renderWithM ann scope x
     NixAssert ann (L _ assertion) (L _ x) -> renderAssertM ann assertion x
 
-instance ExactPrint (NixLit Ps) where
+instance ExactPrint Lit where
   exactPrintM = emitText . renderLitText
 
-instance ExactPrint (NixAttrPath Ps) where
+instance ExactPrint AttrPath where
   exactPrintM path@(NixAttrPath ann keys) =
     emitWrappedNode (attrPathSpan path) ann (renderAttrPathM ann keys)
 
-instance ExactPrint (NixAttrKey Ps) where
+instance ExactPrint AttrKey where
   exactPrintM = emitText . renderAttrKeyText
 
-instance ExactPrint (NixBinding Ps) where
+instance ExactPrint Binding where
   exactPrintM = \case
     NixNormalBinding ann (L _ path) (L _ x) -> renderNormalBindingM ann path x
     NixInheritBinding ann mScope names -> renderInheritBindingM ann mScope names
 
-instance ExactPrint (NixSetPatAs Ps) where
+instance ExactPrint SetPatAs where
   exactPrintM = renderSetPatAsM
 
-instance ExactPrint (NixFuncPat Ps) where
+instance ExactPrint FuncPat where
   exactPrintM = \case
     NixVarPat ann ident -> emitWrappedNode (getLoc ident) ann $ emitAtSpan (getLoc ident) (unLoc ident)
     pat@(NixSetPat ann ellipses mAs params) ->
@@ -222,7 +222,7 @@ instance ExactPrint (NixFuncPat Ps) where
 
 --------------------------------------------------------------------------------
 
-renderLitText :: NixLit Ps -> Text
+renderLitText :: Lit -> Text
 renderLitText = \case
   NixUri _ uri -> uri
   NixInteger _ int -> T.pack (show int)
@@ -231,23 +231,23 @@ renderLitText = \case
   NixBoolean _ False -> "false"
   NixNull _ -> "null"
 
-renderStringText :: NixString Ps -> Text
+renderStringText :: NString -> Text
 renderStringText = \case
   NixDoubleQuotesString src _ -> renderDoubleQuotedSourceText src
   NixDoubleSingleQuotesString src _ -> renderIndentedStringSourceText src
 
-renderPathText :: NixPath Ps -> Text
+renderPathText :: Path -> Text
 renderPathText = \case
   NixLiteralPath _ path -> path
   NixInterpolPath src _ -> renderPathSourceText src
 
-renderAttrKeyText :: NixAttrKey Ps -> Text
+renderAttrKeyText :: AttrKey -> Text
 renderAttrKeyText = \case
   NixStaticAttrKey _ (L _ x) -> x
   NixDynamicStringAttrKey src _ -> renderDoubleQuotedSourceText src
   NixDynamicInterpolAttrKey src _ -> renderDynamicInterpolSourceText src
 
-renderSetPatAsM :: NixSetPatAs Ps -> ExactM ()
+renderSetPatAsM :: SetPatAs -> ExactM ()
 renderSetPatAsM NixSetPatAs {..} =
   emitWrappedNode (setPatAsRenderSpan nspaAnn nspaVar nspaLocation) nspaAnn $ case nspaLocation of
     NixSetPatAsLeading -> do
@@ -257,7 +257,7 @@ renderSetPatAsM NixSetPatAs {..} =
       emitToken "set pattern at" (aspaAt nspaAnn)
       emitAtSpan (getLoc nspaVar) (unLoc nspaVar)
 
-instance ExactPrint (NixSetPatBinding Ps) where
+instance ExactPrint SetPatBinding where
   exactPrintM NixSetPatBinding {..} = do
     emitAtSpan (getLoc nspbVar) (unLoc nspbVar)
     case nspbDefault of
@@ -268,7 +268,7 @@ instance ExactPrint (NixSetPatBinding Ps) where
 
 --------------------------------------------------------------------------------
 
-renderListM :: AnnListNode -> [LNixExpr Ps] -> ExactM ()
+renderListM :: AnnListNode -> [LExpr] -> ExactM ()
 renderListM ann xs = do
   let comments = annComments ann
   emitPriorCommentsTo (expectTokenSpan "list open bracket" (alnOpenS ann)) (priorComments comments)
@@ -279,7 +279,7 @@ renderListM ann xs = do
 
 --------------------------------------------------------------------------------
 
-renderSetM :: AnnSet -> Bool -> [LNixBinding Ps] -> ExactM ()
+renderSetM :: AnnSet -> Bool -> [LBinding] -> ExactM ()
 renderSetM ann _ bindings = do
   let comments = annComments ann
       openAnchor = maybe (expectTokenSpan "set open brace" (asOpenC ann)) (expectTokenSpan "rec keyword") (asRec ann)
@@ -305,7 +305,7 @@ renderEnvPathM ann path = do
 
 --------------------------------------------------------------------------------
 
-renderLamM :: AnnLamNode -> NixFuncPat Ps -> NixExpr Ps -> ExactM ()
+renderLamM :: AnnLamNode -> FuncPat -> Expr -> ExactM ()
 renderLamM ann pat body = do
   let comments = annComments ann
   emitPriorCommentsTo (funcPatRenderSpan pat) (priorComments comments)
@@ -316,7 +316,7 @@ renderLamM ann pat body = do
 
 --------------------------------------------------------------------------------
 
-renderBinAppM :: AnnBinAppNode -> BinaryOp -> NixExpr Ps -> NixExpr Ps -> ExactM ()
+renderBinAppM :: AnnBinAppNode -> BinaryOp -> Expr -> Expr -> ExactM ()
 renderBinAppM ann op lhs rhs = do
   let comments = annComments ann
   emitPriorCommentsTo (exprSpan lhs) (priorComments comments)
@@ -327,7 +327,7 @@ renderBinAppM ann op lhs rhs = do
 
 --------------------------------------------------------------------------------
 
-renderPrefixAppM :: AnnPrefixNode -> Text -> NixExpr Ps -> ExactM ()
+renderPrefixAppM :: AnnPrefixNode -> Text -> Expr -> ExactM ()
 renderPrefixAppM ann tok expr = do
   let comments = annComments ann
   emitPriorCommentsTo (expectTokenSpan "prefix operator" (apfxToken ann)) (priorComments comments)
@@ -337,7 +337,7 @@ renderPrefixAppM ann tok expr = do
 
 --------------------------------------------------------------------------------
 
-renderAttrPathM :: AnnAttrPath -> [LNixAttrKey Ps] -> ExactM ()
+renderAttrPathM :: AnnAttrPath -> [LAttrKey] -> ExactM ()
 renderAttrPathM ann keys =
   case keys of
     [] -> throwError EmptyAttrPath
@@ -363,7 +363,7 @@ renderAttrPathM ann keys =
 
 --------------------------------------------------------------------------------
 
-renderNormalBindingM :: AnnNormalBinding -> NixAttrPath Ps -> NixExpr Ps -> ExactM ()
+renderNormalBindingM :: AnnNormalBinding -> AttrPath -> Expr -> ExactM ()
 renderNormalBindingM ann path expr = do
   let comments = annComments ann
   emitPriorCommentsTo (attrPathRenderSpan path) (priorComments comments)
@@ -373,7 +373,7 @@ renderNormalBindingM ann path expr = do
   emitToken "binding semicolon" (anbSemicolon ann)
   emitFollowingComments (followingComments comments)
 
-renderInheritBindingM :: AnnInheritBinding -> Maybe (LNixExpr Ps) -> [LNixAttrKey Ps] -> ExactM ()
+renderInheritBindingM :: AnnInheritBinding -> Maybe LExpr -> [LAttrKey] -> ExactM ()
 renderInheritBindingM ann mScope names = do
   let comments = annComments ann
       inheritSpan = expectTokenSpan "inherit keyword" (aibInherit ann)
@@ -388,7 +388,7 @@ renderInheritBindingM ann mScope names = do
 
 --------------------------------------------------------------------------------
 
-renderParM :: AnnParNode -> NixExpr Ps -> ExactM ()
+renderParM :: AnnParNode -> Expr -> ExactM ()
 renderParM ann expr = do
   let comments = annComments ann
   emitPriorCommentsTo (expectTokenSpan "paren open" (apnOpenP ann)) (priorComments comments)
@@ -399,7 +399,7 @@ renderParM ann expr = do
 
 --------------------------------------------------------------------------------
 
-renderLetM :: AnnLetNode -> [LNixBinding Ps] -> NixExpr Ps -> ExactM ()
+renderLetM :: AnnLetNode -> [LBinding] -> Expr -> ExactM ()
 renderLetM ann bindings expr = do
   let comments = annComments ann
       letSpan = expectTokenSpan "let keyword" (alLet ann)
@@ -412,7 +412,7 @@ renderLetM ann bindings expr = do
 
 --------------------------------------------------------------------------------
 
-renderIfM :: AnnIfNode -> NixExpr Ps -> NixExpr Ps -> NixExpr Ps -> ExactM ()
+renderIfM :: AnnIfNode -> Expr -> Expr -> Expr -> ExactM ()
 renderIfM ann cond thenExpr elseExpr = do
   let comments = annComments ann
       ifSpan = expectTokenSpan "if keyword" (aifIf ann)
@@ -427,7 +427,7 @@ renderIfM ann cond thenExpr elseExpr = do
 
 --------------------------------------------------------------------------------
 
-renderWithM :: AnnWithNode -> NixExpr Ps -> NixExpr Ps -> ExactM ()
+renderWithM :: AnnWithNode -> Expr -> Expr -> ExactM ()
 renderWithM ann scope expr = do
   let comments = annComments ann
       withSpan = expectTokenSpan "with keyword" (awWith ann)
@@ -440,7 +440,7 @@ renderWithM ann scope expr = do
 
 --------------------------------------------------------------------------------
 
-renderAssertM :: AnnAssertNode -> NixExpr Ps -> NixExpr Ps -> ExactM ()
+renderAssertM :: AnnAssertNode -> Expr -> Expr -> ExactM ()
 renderAssertM ann assertion expr = do
   let comments = annComments ann
       assertSpan = expectTokenSpan "assert keyword" (aaAssert ann)
@@ -453,7 +453,7 @@ renderAssertM ann assertion expr = do
 
 --------------------------------------------------------------------------------
 
-renderHasAttrM :: AnnHasAttr -> NixExpr Ps -> NixAttrPath Ps -> ExactM ()
+renderHasAttrM :: AnnHasAttr -> Expr -> AttrPath -> ExactM ()
 renderHasAttrM ann expr path = do
   let comments = annComments ann
   emitPriorCommentsTo (exprSpan expr) (priorComments comments)
@@ -464,7 +464,7 @@ renderHasAttrM ann expr path = do
 
 --------------------------------------------------------------------------------
 
-renderSelectM :: AnnSelect -> NixExpr Ps -> NixAttrPath Ps -> Maybe (LNixExpr Ps) -> ExactM ()
+renderSelectM :: AnnSelect -> Expr -> AttrPath -> Maybe LExpr -> ExactM ()
 renderSelectM ann expr path def = do
   let comments = annComments ann
   emitPriorCommentsTo (exprSpan expr) (priorComments comments)
@@ -479,7 +479,7 @@ renderSelectM ann expr path def = do
 
 --------------------------------------------------------------------------------
 
-renderSetPatM :: AnnSetPatNode -> NixSetPatEllipses -> Maybe (LNixSetPatAs Ps) -> [LNixSetPatBinding Ps] -> ExactM ()
+renderSetPatM :: AnnSetPatNode -> NixSetPatEllipses -> Maybe LSetPatAs -> [LSetPatBinding] -> ExactM ()
 renderSetPatM ann ellipses mAs params = do
   case mAs of
     Just (L _ asPat@NixSetPatAs {nspaLocation = NixSetPatAsLeading}) -> exactPrintM asPat
@@ -491,7 +491,7 @@ renderSetPatM ann ellipses mAs params = do
     Just (L _ asPat@NixSetPatAs {nspaLocation = NixSetPatAsTrailing}) -> exactPrintM asPat
     _ -> pure ()
 
-renderSetPatEntriesM :: [LNixSetPatBinding Ps] -> [AnnToken] -> NixSetPatEllipses -> Maybe AnnToken -> ExactM ()
+renderSetPatEntriesM :: [LSetPatBinding] -> [AnnToken] -> NixSetPatEllipses -> Maybe AnnToken -> ExactM ()
 renderSetPatEntriesM params commas ellipses ellipsisTok = do
   let (separatorCommas, trailingComma) = splitAt (max 0 (length params - 1)) commas
   renderBindings params separatorCommas

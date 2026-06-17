@@ -68,7 +68,12 @@ library
     Nix.Lang.Annotation
     Nix.Lang.ExactPrint
     Nix.Lang.ExactPrint.Edit
+    Nix.Lang.ExactPrint.Edit.Fragment
+    Nix.Lang.ExactPrint.Edit.Geometry
+    Nix.Lang.ExactPrint.Edit.Rebuild
+    Nix.Lang.ExactPrint.Edit.Types
     Nix.Lang.ExactPrint.Operations
+    Nix.Lang.ExactPrint.Reflow
     Nix.Lang.Outputable
     Nix.Lang.Parser
     Nix.Lang.Span
