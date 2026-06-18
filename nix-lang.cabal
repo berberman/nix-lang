@@ -62,6 +62,7 @@ library
     , parser-combinators
     , prettyprinter
     , syb
+    , template-haskell
     , text
 
   exposed-modules:
@@ -76,9 +77,11 @@ library
     Nix.Lang.ExactPrint.Reflow
     Nix.Lang.Outputable
     Nix.Lang.Parser
+    Nix.Lang.QQ
     Nix.Lang.Span
     Nix.Lang.Types
     Nix.Lang.Utils
+    Nix.Lang.Zipper
 
   hs-source-dirs:  src
 
@@ -92,6 +95,11 @@ test-suite nix-lang-test
     , tasty
     , tasty-hunit
     , text
+
+  other-modules:
+    ExactPrint
+    Parser
+    Utils
 
   hs-source-dirs: test
   main-is:        Spec.hs

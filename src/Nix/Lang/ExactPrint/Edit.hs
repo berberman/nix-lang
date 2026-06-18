@@ -20,6 +20,7 @@ module Nix.Lang.ExactPrint.Edit
   ( EditError (..),
     BindingInsertPosition (..),
     ListInsertPosition (..),
+    EditResult,
     parseExprFragment,
     parseBindingFragment,
     parseAttrKeyFragment,
