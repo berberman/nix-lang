@@ -3,15 +3,13 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Nix.Lang.ExactPrint
-  ( ExactPrint (..),
+  ( ExactPrint,
     ExactPrintError (..),
     exactPrint,
-    renderExactPrint,
-    renderExactPrintM,
+    renderExactText,
+    renderExactTextM,
     renderExactDoc,
     renderDoc,
-    module Nix.Lang.ExactPrint.Edit,
-    module Nix.Lang.ExactPrint.Operations,
   )
 where
 
@@ -21,8 +19,8 @@ import Control.Monad.State.Strict
 import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.Annotation
-import Nix.Lang.ExactPrint.Edit
 import Nix.Lang.ExactPrint.Operations
+import Nix.Lang.Outputable (output)
 import Nix.Lang.Span
 import Nix.Lang.Types
 import Nix.Lang.Utils
@@ -59,16 +57,16 @@ class ExactPrint a where
 --------------------------------------------------------------------------------
 
 exactPrint :: (ExactPrint a) => a -> Doc ann
-exactPrint = either (error . show) pretty . renderExactPrintM
+exactPrint = either (error . show) pretty . renderExactTextM
 
-renderExactPrint :: (ExactPrint a) => a -> Text
-renderExactPrint = either (error . show) id . renderExactPrintM
+renderExactText :: (ExactPrint a) => a -> Text
+renderExactText = either (error . show) id . renderExactTextM
 
-renderExactPrintM :: (ExactPrint a) => a -> Either ExactPrintError Text
-renderExactPrintM x = finishPrinterState . snd <$> runExactPrinter (exactPrintM x)
+renderExactTextM :: (ExactPrint a) => a -> Either ExactPrintError Text
+renderExactTextM x = finishPrinterState . snd <$> runExactPrinter (exactPrintM x)
 
 renderExactDoc :: (ExactPrint a) => a -> Either ExactPrintError (Doc ann)
-renderExactDoc = fmap pretty . renderExactPrintM
+renderExactDoc = fmap pretty . renderExactTextM
 
 renderDoc :: Doc ann -> Text
 renderDoc = renderStrict . layoutPretty defaultLayoutOptions
@@ -82,8 +80,8 @@ runExactPrinter action = runExcept (runStateT (runExactM action) emptyPrinterSta
 finishPrinterState :: ExactPrinterState -> Text
 finishPrinterState = T.concat . reverse . epsChunks
 
-exactPrintLocatedM :: (ExactPrint a) => Located a -> ExactM ()
-exactPrintLocatedM = exactPrintM . unLoc
+exactPrintLocated :: (ExactPrint a) => Located a -> ExactM ()
+exactPrintLocated = exactPrintM . unLoc
 
 --------------------------------------------------------------------------------
 
@@ -239,13 +237,35 @@ renderStringText = \case
 renderPathText :: Path -> Text
 renderPathText = \case
   NixLiteralPath _ path -> path
-  NixInterpolPath src _ -> renderPathSourceText src
+  NixInterpolPath _ parts -> renderInterpolatedPathText parts
 
 renderAttrKeyText :: AttrKey -> Text
 renderAttrKeyText = \case
   NixStaticAttrKey _ (L _ x) -> x
-  NixDynamicStringAttrKey src _ -> renderDoubleQuotedSourceText src
-  NixDynamicInterpolAttrKey src _ -> renderDynamicInterpolSourceText src
+  NixDynamicStringAttrKey _ parts -> renderDoubleQuotedPartsText parts
+  NixDynamicInterpolAttrKey _ expr -> renderInterpolatedExprText expr
+
+renderInterpolatedPathText :: [LNixStringPart Ps] -> Text
+renderInterpolatedPathText = T.concat . fmap (renderPathPartText . unLoc)
+
+renderDoubleQuotedPartsText :: [LNixStringPart Ps] -> Text
+renderDoubleQuotedPartsText parts = "\"" <> renderQuotedPartsText parts <> "\""
+
+renderQuotedPartsText :: [LNixStringPart Ps] -> Text
+renderQuotedPartsText = T.concat . fmap (renderQuotedPartText . unLoc)
+
+renderPathPartText :: NixStringPart Ps -> Text
+renderPathPartText = \case
+  NixStringLiteral _ txt -> txt
+  NixStringInterpol _ expr -> renderInterpolatedExprText expr
+
+renderQuotedPartText :: NixStringPart Ps -> Text
+renderQuotedPartText = \case
+  NixStringLiteral _ txt -> txt
+  NixStringInterpol _ expr -> renderInterpolatedExprText expr
+
+renderInterpolatedExprText :: LExpr -> Text
+renderInterpolatedExprText expr = "${" <> renderDoc (output (unLoc expr)) <> "}"
 
 renderSetPatAsM :: SetPatAs -> ExactM ()
 renderSetPatAsM NixSetPatAs {..} =
@@ -263,7 +283,7 @@ instance ExactPrint SetPatBinding where
     case nspbDefault of
       Nothing -> pure ()
       Just defExpr -> case aspbQuestion nspbAnn of
-        Just qTok -> emitToken "set pattern question" qTok >> exactPrintLocatedM defExpr
+        Just qTok -> emitToken "set pattern question" qTok >> exactPrintLocated defExpr
         Nothing -> throwError $ MissingSetPatQuestion (getLoc nspbVar)
 
 --------------------------------------------------------------------------------
@@ -273,7 +293,7 @@ renderListM ann xs = do
   let comments = annComments ann
   emitPriorCommentsTo (expectTokenSpan "list open bracket" (alnOpenS ann)) (priorComments comments)
   emitToken "list open bracket" (alnOpenS ann)
-  mapM_ exactPrintLocatedM xs
+  mapM_ exactPrintLocated xs
   emitFollowingComments (followingComments comments)
   emitToken "list close bracket" (alnCloseS ann)
 
@@ -288,7 +308,7 @@ renderSetM ann _ bindings = do
     Just recTok -> emitToken "rec keyword" recTok
     Nothing -> pure ()
   emitToken "set open brace" (asOpenC ann)
-  mapM_ exactPrintLocatedM bindings
+  mapM_ exactPrintLocated bindings
   emitFollowingComments (followingComments comments)
   emitToken "set close brace" (asCloseC ann)
 
@@ -379,7 +399,7 @@ renderInheritBindingM ann mScope names = do
       inheritSpan = expectTokenSpan "inherit keyword" (aibInherit ann)
   emitPriorCommentsTo inheritSpan (priorComments comments)
   emitToken "inherit keyword" (aibInherit ann)
-  maybe (pure ()) exactPrintLocatedM mScope
+  maybe (pure ()) exactPrintLocated mScope
   mapM_ emitName names
   emitToken "inherit semicolon" (aibSemicolon ann)
   emitFollowingComments (followingComments comments)
@@ -405,7 +425,7 @@ renderLetM ann bindings expr = do
       letSpan = expectTokenSpan "let keyword" (alLet ann)
   emitPriorCommentsTo letSpan (priorComments comments)
   emitToken "let keyword" (alLet ann)
-  mapM_ exactPrintLocatedM bindings
+  mapM_ exactPrintLocated bindings
   emitToken "in keyword" (alIn ann)
   exactPrintM expr
   emitFollowingComments (followingComments comments)
@@ -473,8 +493,8 @@ renderSelectM ann expr path def = do
   case def of
     Nothing -> pure ()
     Just defExpr -> case aslOr ann of
-      Just orTok -> emitTokenText "select or" orTok "or" >> exactPrintLocatedM defExpr
-      Nothing -> emitText " or " >> exactPrintLocatedM defExpr
+      Just orTok -> emitTokenText "select or" orTok "or" >> exactPrintLocated defExpr
+      Nothing -> emitText " or " >> exactPrintLocated defExpr
   emitFollowingComments (followingComments comments)
 
 --------------------------------------------------------------------------------
@@ -523,9 +543,3 @@ renderDoubleQuotedSourceText (SourceText src) = "\"" <> src <> "\""
 
 renderIndentedStringSourceText :: SourceText -> Text
 renderIndentedStringSourceText (SourceText src) = "''" <> src <> "''"
-
-renderPathSourceText :: SourceText -> Text
-renderPathSourceText (SourceText src) = src
-
-renderDynamicInterpolSourceText :: SourceText -> Text
-renderDynamicInterpolSourceText (SourceText src) = "${" <> src <> "}"

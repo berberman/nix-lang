@@ -16,6 +16,7 @@ module Nix.Lang.ExactPrint.Edit.Rebuild
   )
 where
 
+import Data.Data (Data)
 import Data.Text (Text)
 import Nix.Lang.Annotation
 import Nix.Lang.ExactPrint.Edit.Geometry
@@ -265,23 +266,16 @@ firstListElementCursor anchorMode style ann xs =
 -- | Reflow list elements from left to right.
 rebuildListElements :: String -> ListLayoutStyle -> RenderCursor -> [LExpr] -> [LExpr]
 rebuildListElements targetFile style startCursor =
-  reflow
-    (listFlow style)
-    renderExprSyntax
-    (\cursor -> normalizeExprLayout . reanchorExpr targetFile cursor)
-    startCursor
+  rebuildSequenceLayout (listFlow style) renderExprSyntax reanchorExpr normalizeExprLayout targetFile startCursor
 
 -- | Compute where the closing bracket should be placed after repairing a list.
 listCloseCursor :: ListLayoutStyle -> SrcSpan -> [LExpr] -> RenderCursor
 listCloseCursor style oldClose xs =
-  closeAfter (listFlow style) renderExprSyntax oldClose xs
+  closeSequenceCursor (listFlow style) renderExprSyntax oldClose xs
 
 -- | Move an expression so its outer span starts at a given cursor.
 reanchorExpr :: String -> RenderCursor -> LExpr -> LExpr
-reanchorExpr targetFile target expr@(L originalSpan _) =
-  translateFromTo originalSpan targetSpan expr
-  where
-    targetSpan = mkSrcSpan targetFile (rcLine target, rcColumn target) (rcLine target, rcColumn target + 1)
+reanchorExpr = reanchorLocated
 
 -- | Infer whether a set should stay inline or multiline.
 inferSetLayoutStyle :: AnnSet -> [LBinding] -> SetLayoutStyle
@@ -335,21 +329,20 @@ preservesExistingAnchors = \case
 -- | Reflow bindings from left to right.
 rebuildBindingsLayout :: String -> SetLayoutStyle -> RenderCursor -> [LBinding] -> [LBinding]
 rebuildBindingsLayout targetFile style startCursor =
-  reflow
-    (setFlow style)
-    renderBindingSyntax
-    (\cursor -> normalizeBindingLayout . reanchorBinding targetFile cursor)
-    startCursor
+  rebuildSequenceLayout (setFlow style) renderBindingSyntax reanchorBinding normalizeBindingLayout targetFile startCursor
 
 -- | Compute where the closing brace should be placed after repairing bindings.
 closeCursor :: SetLayoutStyle -> SrcSpan -> [LBinding] -> RenderCursor
 closeCursor style oldClose bindings =
-  closeAfter (setFlow style) renderBindingSyntax oldClose bindings
+  closeSequenceCursor (setFlow style) renderBindingSyntax oldClose bindings
 
 -- | Move a binding so its outer span starts at a given cursor.
 reanchorBinding :: String -> RenderCursor -> LBinding -> LBinding
-reanchorBinding targetFile target binding@(L originalSpan _) =
-  translateFromTo originalSpan targetSpan binding
+reanchorBinding = reanchorLocated
+
+reanchorLocated :: (Data a) => String -> RenderCursor -> Located a -> Located a
+reanchorLocated targetFile target located@(L originalSpan _) =
+  translateFromTo originalSpan targetSpan located
   where
     targetSpan = mkSrcSpan targetFile (rcLine target, rcColumn target) (rcLine target, rcColumn target + 1)
 
@@ -372,6 +365,13 @@ renderBindingSyntax = renderStrict . layoutPretty defaultLayoutOptions . output
 -- | Render an expression for cursor advancement during rebuild.
 renderExprSyntax :: Expr -> Text
 renderExprSyntax = renderStrict . layoutPretty defaultLayoutOptions . output
+
+rebuildSequenceLayout :: Flow -> (a -> Text) -> (String -> RenderCursor -> Located a -> Located a) -> (Located a -> Located a) -> String -> RenderCursor -> [Located a] -> [Located a]
+rebuildSequenceLayout flow renderSyntax reanchor normalize targetFile startCursor =
+  reflow flow renderSyntax (\cursor -> normalize . reanchor targetFile cursor) startCursor
+
+closeSequenceCursor :: Flow -> (a -> Text) -> SrcSpan -> [Located a] -> RenderCursor
+closeSequenceCursor = closeAfter
 
 -- | Normalize a binding subtree after it has been structurally moved.
 normalizeBindingLayout :: LBinding -> LBinding

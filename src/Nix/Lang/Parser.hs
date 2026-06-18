@@ -261,11 +261,11 @@ literalPath =
 
 interpolPath :: Parser (NixExpr Ps)
 interpolPath =
-  located (match path) >>= \(L l (src, p)) -> do
+  located path >>= \(L l p) -> do
     let parts = mergeStringPartLiteral p
     guard $ slashInFirstPart parts
     common <- mkAnnCommon l
-    pure $ NixPath (AnnPathNode common) $ L l $ NixInterpolPath (SourceText src) parts
+    pure $ NixPath (AnnPathNode common) $ L l $ NixInterpolPath NoExtF parts
   where
     -- at least one slash before interpolation
     slashInFirstPart (L _ (NixStringLiteral _ s) : _) = T.elem '/' s
@@ -365,12 +365,15 @@ doubleQuotesString =
     common <- mkAnnCommon l
     pure $ NixString (AnnStringNode common) (L l s)
   where
-    escape = NixStringLiteral NoExtF . T.singleton <$> (char '\\' >> escapedChar)
-    -- @$${@ does not indicate an interpolation, so we try to consume $$ first
-    parts = many (located $ ((NixStringLiteral NoExtF <$> string "$$") <|> nixStringPartInterpol <|> nixStringPartLiteral "\"" "\\" escape) <* updateLoc)
     lit = do
-      (src, parsedParts) <- match parts
+      (src, parsedParts) <- match doubleQuotedStringParts
       pure $ NixDoubleQuotesString (SourceText src) (mergeStringPartLiteral parsedParts)
+
+doubleQuotedStringParts :: Parser [LNixStringPart Ps]
+doubleQuotedStringParts = many (located $ ((NixStringLiteral NoExtF <$> string "$$") <|> nixStringPartInterpol <|> nixStringPartLiteral "\"" "\\" doubleQuotedStringEscape) <* updateLoc)
+
+doubleQuotedStringEscape :: Parser (NixStringPart Ps)
+doubleQuotedStringEscape = NixStringLiteral NoExtF . T.singleton <$> (char '\\' >> escapedChar)
 
 doubleSingleQuotesString :: Parser (NixExpr Ps)
 doubleSingleQuotesString = s >>= expr
@@ -426,13 +429,11 @@ attrKey = dynamicString <|> dynamicInterpol <|> static
   where
     static = NixStaticAttrKey NoExtF <$> located ident
     dynamicString =
-      lexeme doubleQuotesString >>= \case
-        (NixString _ (L _ (NixDoubleQuotesString src x))) -> pure $ NixDynamicStringAttrKey src x
-        _ -> fail "Impossible"
+      lexeme (betweenToken AnnDoubleQuote AnnDoubleQuote False False (mergeStringPartLiteral <$> doubleQuotedStringParts)) >>= \(L _ x) ->
+        pure $ NixDynamicStringAttrKey NoExtF x
     dynamicInterpol =
-      stringSourceText "${" "}" empty >>= \src ->
-        NixDynamicInterpolAttrKey src
-          <$> antiquote True True nixExpr
+      NixDynamicInterpolAttrKey NoExtF
+        <$> antiquote True True nixExpr
 
 attrPath :: Bool -> Parser (NixAttrPath Ps)
 attrPath dotFirst =

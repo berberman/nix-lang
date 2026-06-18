@@ -51,15 +51,15 @@ type instance XXNixString Ps = NoExtC
 
 type instance XNixLiteralPath Ps = NoExtF
 
-type instance XNixInterpolPath Ps = SourceText
+type instance XNixInterpolPath Ps = NoExtF
 
 type instance XXNixPath Ps = NoExtC
 
 type instance XNixStaticAttrKey Ps = NoExtF
 
-type instance XNixDynamicStringAttrKey Ps = SourceText
+type instance XNixDynamicStringAttrKey Ps = NoExtF
 
-type instance XNixDynamicInterpolAttrKey Ps = SourceText
+type instance XNixDynamicInterpolAttrKey Ps = NoExtF
 
 type instance XXNixAttrKey Ps = NoExtC
 
@@ -123,7 +123,31 @@ type instance XNixAssert Ps = AnnAssertNode
 
 type instance XXNixExpr Ps = NoExtC
 
-type ParsedNixExpr = LNixExpr Ps
+--------------------------------------------------------------------------------
+
+type Expr = NixExpr Ps
+
+type LExpr = Located Expr
+
+type Binding = NixBinding Ps
+
+type LBinding = Located Binding
+
+type AttrPath = NixAttrPath Ps
+
+type LAttrPath = Located AttrPath
+
+type AttrKey = NixAttrKey Ps
+
+type LAttrKey = Located AttrKey
+
+type FuncPat = NixFuncPat Ps
+
+type LFuncPat = Located FuncPat
+
+type Lit = NixLit Ps
+
+type LLit = Located Lit
 
 --------------------------------------------------------------------------------
 data BinaryOp

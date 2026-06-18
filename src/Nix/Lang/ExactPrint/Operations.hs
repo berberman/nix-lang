@@ -50,16 +50,6 @@ module Nix.Lang.ExactPrint.Operations
     deltaFromAnchor,
 
     -- * Type alias
-    Expr,
-    LExpr,
-    Binding,
-    LBinding,
-    AttrPath,
-    LAttrPath,
-    AttrKey,
-    LAttrKey,
-    FuncPat,
-    LFuncPat,
     SetPatBinding,
     LSetPatBinding,
     SetPatAs,
@@ -87,26 +77,6 @@ import Prettyprinter (Doc, pretty)
 
 --------------------------------------------------------------------------------
 
-type Expr = NixExpr Ps
-
-type LExpr = Located Expr
-
-type Binding = NixBinding Ps
-
-type LBinding = Located Binding
-
-type AttrPath = NixAttrPath Ps
-
-type LAttrPath = Located AttrPath
-
-type AttrKey = NixAttrKey Ps
-
-type LAttrKey = Located AttrKey
-
-type FuncPat = NixFuncPat Ps
-
-type LFuncPat = Located FuncPat
-
 type SetPatBinding = NixSetPatBinding Ps
 
 type LSetPatBinding = Located SetPatBinding
@@ -118,10 +88,6 @@ type LSetPatAs = Located SetPatAs
 type Id = NixId Ps
 
 type LId = Located Id
-
-type Lit = NixLit Ps
-
-type LLit = Located Lit
 
 type Path = NixPath Ps
 

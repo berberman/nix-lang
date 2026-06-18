@@ -5,6 +5,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Nix.Lang.Annotation
 import Nix.Lang.ExactPrint
+import Nix.Lang.ExactPrint.Edit
 import qualified Nix.Lang.ExactPrint.Operations as Ops
 import Nix.Lang.Parser
 import Nix.Lang.Span
@@ -40,19 +41,19 @@ tests =
           testCase "repair expr layout supports global integer rewrite in set" repairExprLayoutRepairsGlobalIntegerRewriteInSet,
           testCase "repair expr layout supports global integer rewrite in list" repairExprLayoutRepairsGlobalIntegerRewriteInList,
           testCase "repair expr layout supports shape-changing binding rewrite" repairExprLayoutRepairsShapeChangingBindingRewrite,
-          testCase "parse binding fragment parses standalone binding" parseBindingFragmentParsesStandaloneBinding,
-          testCase "parse expr fragment parses standalone expression" parseExprFragmentParsesStandaloneExpression,
-          testCase "insert binding node at appends let binding" insertBindingNodeAtAppendsLetBinding,
-          testCase "replace binding node at updates set binding" replaceBindingNodeAtUpdatesSetBinding,
+  testCase "parse binding parses standalone binding" parseBindingParsesStandaloneBinding,
+  testCase "parse expr parses standalone expression" parseExprParsesStandaloneExpression,
+  testCase "insert binding appends let binding" insertBindingAppendsLetBinding,
+  testCase "replace binding updates set binding" replaceBindingUpdatesSetBinding,
           testCase "insert binding at appends let binding" insertBindingAtAppendsLetBinding,
           testCase "delete binding at removes set binding" deleteBindingAtRemovesSetBinding,
-          testCase "replace binding value node at updates set binding" replaceBindingValueNodeAtUpdatesSetBinding,
+  testCase "replace binding value node at updates set binding" replaceBindingValueNodeAtUpdatesSetBinding,
           testCase "delete binding at removes let binding" deleteBindingAtRemovesLetBinding,
           testCase "replace binding value updates set binding" replaceBindingValueUpdatesSetBinding,
           testCase "replace binding value updates let binding" replaceBindingValueUpdatesLetBinding,
           testCase "replace binding value rejects inherit binding" replaceBindingValueRejectsInheritBinding,
-          testCase "insert list element node at appends multiline list" insertListElementNodeAtAppendsMultilineList,
-          testCase "replace list element node at updates inline list" replaceListElementNodeAtUpdatesInlineList,
+  testCase "insert list element appends multiline list" insertListElementAppendsMultilineList,
+  testCase "replace list element updates inline list" replaceListElementUpdatesInlineList,
           testCase "insert list element appends inline list" insertListElementAtAppendsInlineList,
           testCase "insert list element appends multiline list" insertListElementAtAppendsMultilineList,
           testCase "delete list element removes element" deleteListElementAtRemovesElement,
@@ -95,8 +96,11 @@ tests =
           testCase "exact print preserves quoted string source text" exactPrintPreservesQuotedStringSource,
           testCase "exact print preserves indented string source text" exactPrintPreservesIndentedStringSource,
           testCase "exact print preserves literal path" exactPrintPreservesLiteralPath,
+          testCase "exact print preserves interpolated path structurally" exactPrintPreservesInterpolatedPath,
           testCase "exact print preserves env path" exactPrintPreservesEnvPath,
           testCase "exact print preserves dynamic attr binding" exactPrintPreservesDynamicAttrBinding,
+          testCase "exact print preserves dynamic string attr binding" exactPrintPreservesDynamicStringAttrBinding,
+          testCase "exact print preserves structural dynamic interpol attr binding" exactPrintPreservesStructuralDynamicInterpolAttrBinding,
           testCase "exact print preserves inherit binding" exactPrintPreservesInheritBinding,
           testCase "exact print preserves lambda var pattern" exactPrintPreservesLambdaVarPattern,
           testCase "exact print preserves lambda set pattern" exactPrintPreservesLambdaSetPattern,
@@ -117,19 +121,19 @@ tests =
 assertExactPrintRoundtripExpr :: T.Text -> Assertion
 assertExactPrintRoundtripExpr src =
   case runNixParser (nixExpr <* eof) "<expr>" src of
-    (Right expr, _) -> renderExactPrint expr @?= src
+    (Right expr, _) -> renderExactText expr @?= src
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 assertExactPrintRoundtripFile :: FilePath -> T.Text -> Assertion
 assertExactPrintRoundtripFile fp src =
   case runNixParser nixFile fp src of
-    (Right expr, _) -> renderExactPrint expr @?= src
+    (Right expr, _) -> renderExactText expr @?= src
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 assertExactPrintMatches :: FilePath -> T.Text -> Assertion
 assertExactPrintMatches fp src =
   case runNixParser nixFile fp src of
-    (Right expr, _) -> renderExactPrint expr @?= src
+    (Right expr, _) -> renderExactText expr @?= src
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 lineCommentsCollected :: Assertion
@@ -221,21 +225,21 @@ insertSetBindingAppendsInlineBinding :: Assertion
 insertSetBindingAppendsInlineBinding = do
   expr <- parseExprOrFail "{ }"
   case insertSetBindingText AppendBinding "x = 1;" expr of
-    Right edited -> renderExactPrint edited @?= "{ x = 1; }"
+    Right edited -> renderExactText edited @?= "{ x = 1; }"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 insertSetBindingAppendsMultilineBinding :: Assertion
 insertSetBindingAppendsMultilineBinding = do
   expr <- parseExprOrFail "{\n  a = 1;\n}"
   case insertSetBindingText AppendBinding "b = 2;" expr of
-    Right edited -> renderExactPrint edited @?= "{\n  a = 1;\n  b = 2;\n}"
+    Right edited -> renderExactText edited @?= "{\n  a = 1;\n  b = 2;\n}"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 replaceSetBindingKeepsMultilineSetRenderable :: Assertion
 replaceSetBindingKeepsMultilineSetRenderable = do
   expr <- parseExprOrFail "{\n  a = 1;\n}"
   case replaceSetBindingText 0 "config.allowUnfree = true;" expr of
-    Right edited -> renderExactPrint edited @?= "{\n  config.allowUnfree = true;\n}"
+    Right edited -> renderExactText edited @?= "{\n  config.allowUnfree = true;\n}"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 insertSetBindingRejectsNonSet :: Assertion
@@ -249,21 +253,21 @@ repairSetLayoutPreservesMultilineSet :: Assertion
 repairSetLayoutPreservesMultilineSet = do
   expr <- parseExprOrFail "{\n  a = 1;\n  b = 2;\n}"
   case repairSetLayout expr of
-    Right edited -> renderExactPrint edited @?= "{\n  a = 1;\n  b = 2;\n}"
+    Right edited -> renderExactText edited @?= "{\n  a = 1;\n  b = 2;\n}"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 repairLetLayoutPreservesMultilineLet :: Assertion
 repairLetLayoutPreservesMultilineLet = do
   expr <- parseExprOrFail "let\n  a = 1;\n  b = 2;\nin\n  a"
   case repairLetLayout expr of
-    Right edited -> renderExactPrint edited @?= "let\n  a = 1;\n  b = 2;\nin\n  a"
+    Right edited -> renderExactText edited @?= "let\n  a = 1;\n  b = 2;\nin\n  a"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 repairListLayoutPreservesMultilineList :: Assertion
 repairListLayoutPreservesMultilineList = do
   expr <- parseExprOrFail "[\n  a\n  b\n]"
   case repairListLayout expr of
-    Right edited -> renderExactPrint edited @?= "[\n  a\n  b\n]"
+    Right edited -> renderExactText edited @?= "[\n  a\n  b\n]"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 repairListLayoutRejectsNonList :: Assertion
@@ -278,7 +282,7 @@ repairExprLayoutRepairsGlobalIntegerRewriteInSet = do
   expr <- parseExprOrFail "{\n  a = 1;\n  b = [\n    2\n    3\n  ];\n}"
   let mutated = everywhere (mkT incrementIntegerLiteral) expr
   case repairExprLayout mutated of
-    Right repaired -> renderExactPrint repaired @?= "{\n  a = 2;\n  b = [\n    3\n    4\n  ];\n}"
+    Right repaired -> renderExactText repaired @?= "{\n  a = 2;\n  b = [\n    3\n    4\n  ];\n}"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 repairExprLayoutRepairsGlobalIntegerRewriteInList :: Assertion
@@ -286,7 +290,7 @@ repairExprLayoutRepairsGlobalIntegerRewriteInList = do
   expr <- parseExprOrFail "[\n  1\n  {\n    x = 2;\n  }\n  3\n]"
   let mutated = everywhere (mkT incrementIntegerLiteral) expr
   case repairExprLayout mutated of
-    Right repaired -> renderExactPrint repaired @?= "[\n  2\n  {\n    x = 3;\n  }\n  4\n]"
+    Right repaired -> renderExactText repaired @?= "[\n  2\n  {\n    x = 3;\n  }\n  4\n]"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 repairExprLayoutRepairsShapeChangingBindingRewrite :: Assertion
@@ -296,42 +300,42 @@ repairExprLayoutRepairsShapeChangingBindingRewrite = do
   let mutated = rewriteFirstBindingValue replacement expr
   case repairExprLayout mutated of
     Right repaired ->
-      renderExactPrint repaired
+      renderExactText repaired
         @?= "{\n  a = if\n  cond\nthen\n  2\nelse\n  3;\n}"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
-parseBindingFragmentParsesStandaloneBinding :: Assertion
-parseBindingFragmentParsesStandaloneBinding =
-  case parseBindingFragment "config.allowUnfree = true;" of
+parseBindingParsesStandaloneBinding :: Assertion
+parseBindingParsesStandaloneBinding =
+  case parseBinding "config.allowUnfree = true;" of
     Right (L _ (NixNormalBinding _ path value)) -> do
-      renderExactPrint (unLoc path) @?= "config.allowUnfree"
-      renderExactPrint (unLoc value) @?= "true"
+      renderExactText(unLoc path) @?= "config.allowUnfree"
+      renderExactText(unLoc value) @?= "true"
     Left err -> assertFailure $ "unexpected parse error: " <> show err
     other -> assertFailure $ "expected normal binding fragment, got: " <> show other
 
-parseExprFragmentParsesStandaloneExpression :: Assertion
-parseExprFragmentParsesStandaloneExpression =
-  case parseExprFragment "a.b or c" of
-    Right (L _ expr) -> renderExactPrint expr @?= "a.b or c"
+parseExprParsesStandaloneExpression :: Assertion
+parseExprParsesStandaloneExpression =
+  case parseExpr "a.b or c" of
+    Right (L _ expr) -> renderExactText expr @?= "a.b or c"
     Left err -> assertFailure $ "unexpected parse error: " <> show err
 
-insertBindingNodeAtAppendsLetBinding :: Assertion
-insertBindingNodeAtAppendsLetBinding = do
+insertBindingAppendsLetBinding :: Assertion
+insertBindingAppendsLetBinding = do
   expr <- parseExprOrFail "let\n  a = 1;\nin\n  a"
-  case parseBindingFragment "b = 2;" of
+  case parseBinding "b = 2;" of
     Right binding ->
-      case insertBindingNodeAt AppendBinding binding expr of
-        Right edited -> renderExactPrint edited @?= "let\n  a = 1;\n  b = 2;\nin\n  a"
+      case insertBinding AppendBinding binding expr of
+        Right edited -> renderExactText edited @?= "let\n  a = 1;\n  b = 2;\nin\n  a"
         Left err -> assertFailure $ "unexpected edit error: " <> show err
     Left err -> assertFailure $ "unexpected parse error: " <> show err
 
-replaceBindingNodeAtUpdatesSetBinding :: Assertion
-replaceBindingNodeAtUpdatesSetBinding = do
+replaceBindingUpdatesSetBinding :: Assertion
+replaceBindingUpdatesSetBinding = do
   expr <- parseExprOrFail "{\n  a = 1;\n}"
-  case parseBindingFragment "config.allowUnfree = true;" of
+  case parseBinding "config.allowUnfree = true;" of
     Right binding ->
-      case replaceBindingNodeAt 0 binding expr of
-        Right edited -> renderExactPrint edited @?= "{\n  config.allowUnfree = true;\n}"
+      case replaceBinding 0 binding expr of
+        Right edited -> renderExactText edited @?= "{\n  config.allowUnfree = true;\n}"
         Left err -> assertFailure $ "unexpected edit error: " <> show err
     Left err -> assertFailure $ "unexpected parse error: " <> show err
 
@@ -339,30 +343,30 @@ insertBindingAtAppendsLetBinding :: Assertion
 insertBindingAtAppendsLetBinding = do
   expr <- parseExprOrFail "let\n  a = 1;\nin\n  a"
   case insertBindingAt AppendBinding "b = 2;" expr of
-    Right edited -> renderExactPrint edited @?= "let\n  a = 1;\n  b = 2;\nin\n  a"
+    Right edited -> renderExactText edited @?= "let\n  a = 1;\n  b = 2;\nin\n  a"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 deleteBindingAtRemovesSetBinding :: Assertion
 deleteBindingAtRemovesSetBinding = do
   expr <- parseExprOrFail "{\n  a = 1;\n  b = 2;\n}"
   case deleteBindingAt 0 expr of
-    Right edited -> renderExactPrint edited @?= "{\n  b = 2;\n}"
+    Right edited -> renderExactText edited @?= "{\n  b = 2;\n}"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 deleteBindingAtRemovesLetBinding :: Assertion
 deleteBindingAtRemovesLetBinding = do
   expr <- parseExprOrFail "let\n  a = 1;\n  b = 2;\nin\n  b"
   case deleteBindingAt 0 expr of
-    Right edited -> renderExactPrint edited @?= "let\n  b = 2;\nin\n  b"
+    Right edited -> renderExactText edited @?= "let\n  b = 2;\nin\n  b"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 replaceBindingValueNodeAtUpdatesSetBinding :: Assertion
 replaceBindingValueNodeAtUpdatesSetBinding = do
   expr <- parseExprOrFail "{\n  a = 1;\n}"
-  case parseExprFragment "b" of
+  case parseExpr "b" of
     Right value ->
       case replaceBindingValueNodeAt 0 value expr of
-        Right edited -> renderExactPrint edited @?= "{\n  a = b;\n}"
+        Right edited -> renderExactText edited @?= "{\n  a = b;\n}"
         Left err -> assertFailure $ "unexpected edit error: " <> show err
     Left err -> assertFailure $ "unexpected parse error: " <> show err
 
@@ -370,14 +374,14 @@ replaceBindingValueUpdatesSetBinding :: Assertion
 replaceBindingValueUpdatesSetBinding = do
   expr <- parseExprOrFail "{\n  a = 1;\n}"
   case replaceBindingValue 0 "b" expr of
-    Right edited -> renderExactPrint edited @?= "{\n  a = b;\n}"
+    Right edited -> renderExactText edited @?= "{\n  a = b;\n}"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 replaceBindingValueUpdatesLetBinding :: Assertion
 replaceBindingValueUpdatesLetBinding = do
   expr <- parseExprOrFail "let\n  a = 1;\nin\n  a"
   case replaceBindingValue 0 "b" expr of
-    Right edited -> renderExactPrint edited @?= "let\n  a = b;\nin\n  a"
+    Right edited -> renderExactText edited @?= "let\n  a = b;\nin\n  a"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 replaceBindingValueRejectsInheritBinding :: Assertion
@@ -387,23 +391,23 @@ replaceBindingValueRejectsInheritBinding = do
     Left (NotANormalBinding 0) -> pure ()
     other -> assertFailure $ "expected Left (NotANormalBinding 0), got: " <> show other
 
-insertListElementNodeAtAppendsMultilineList :: Assertion
-insertListElementNodeAtAppendsMultilineList = do
+insertListElementAppendsMultilineList :: Assertion
+insertListElementAppendsMultilineList = do
   expr <- parseExprOrFail "[\n  a\n]"
-  case parseExprFragment "b" of
+  case parseExpr "b" of
     Right element ->
-      case insertListElementNodeAt AppendListElement element expr of
-        Right edited -> renderExactPrint edited @?= "[\n  a\n  b\n]"
+      case insertListElement AppendListElement element expr of
+        Right edited -> renderExactText edited @?= "[\n  a\n  b\n]"
         Left err -> assertFailure $ "unexpected edit error: " <> show err
     Left err -> assertFailure $ "unexpected parse error: " <> show err
 
-replaceListElementNodeAtUpdatesInlineList :: Assertion
-replaceListElementNodeAtUpdatesInlineList = do
+replaceListElementUpdatesInlineList :: Assertion
+replaceListElementUpdatesInlineList = do
   expr <- parseExprOrFail "[ a b ]"
-  case parseExprFragment "c" of
+  case parseExpr "c" of
     Right element ->
-      case replaceListElementNodeAt 1 element expr of
-        Right edited -> renderExactPrint edited @?= "[ a c ]"
+      case replaceListElement 1 element expr of
+        Right edited -> renderExactText edited @?= "[ a c ]"
         Left err -> assertFailure $ "unexpected edit error: " <> show err
     Left err -> assertFailure $ "unexpected parse error: " <> show err
 
@@ -411,35 +415,35 @@ insertListElementAtAppendsInlineList :: Assertion
 insertListElementAtAppendsInlineList = do
   expr <- parseExprOrFail "[ ]"
   case insertListElementAt AppendListElement "a" expr of
-    Right edited -> renderExactPrint edited @?= "[ a ]"
+    Right edited -> renderExactText edited @?= "[ a ]"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 insertListElementAtAppendsMultilineList :: Assertion
 insertListElementAtAppendsMultilineList = do
   expr <- parseExprOrFail "[\n  a\n]"
   case insertListElementAt AppendListElement "b" expr of
-    Right edited -> renderExactPrint edited @?= "[\n  a\n  b\n]"
+    Right edited -> renderExactText edited @?= "[\n  a\n  b\n]"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 deleteListElementAtRemovesElement :: Assertion
 deleteListElementAtRemovesElement = do
   expr <- parseExprOrFail "[\n  a\n  b\n]"
   case deleteListElementAt 0 expr of
-    Right edited -> renderExactPrint edited @?= "[\n  b\n]"
+    Right edited -> renderExactText edited @?= "[\n  b\n]"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 renameAttrPathKeyRenamesNestedKeyInSet :: Assertion
 renameAttrPathKeyRenamesNestedKeyInSet = do
   expr <- parseExprOrFail "{\n  foo.bar = 1;\n}"
   case renameAttrPathKey 0 1 "baz" expr of
-    Right edited -> renderExactPrint edited @?= "{\n  foo.baz = 1;\n}"
+    Right edited -> renderExactText edited @?= "{\n  foo.baz = 1;\n}"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 renameAttrPathKeyRenamesNestedKeyInLet :: Assertion
 renameAttrPathKeyRenamesNestedKeyInLet = do
   expr <- parseExprOrFail "let\n  foo.bar = 1;\nin\n  foo.bar"
   case renameAttrPathKey 0 1 "baz" expr of
-    Right edited -> renderExactPrint edited @?= "let\n  foo.baz = 1;\nin\n  foo bar"
+    Right edited -> renderExactText edited @?= "let\n  foo.baz = 1;\nin\n  foo bar"
     Left err -> assertFailure $ "unexpected edit error: " <> show err
 
 incrementIntegerLiteral :: NixLit Ps -> NixLit Ps
@@ -450,10 +454,10 @@ incrementIntegerLiteral = \case
 rewriteFirstBindingValue :: NixExpr Ps -> NixExpr Ps -> NixExpr Ps
 rewriteFirstBindingValue replacement = \case
   NixSet ann kind (L bindingsLoc (binding : rest)) ->
-    NixSet ann kind (L bindingsLoc (replaceBinding binding : rest))
+    NixSet ann kind (L bindingsLoc (rewriteBinding binding : rest))
   expr -> expr
   where
-    replaceBinding (L bindingLoc binding) =
+    rewriteBinding (L bindingLoc binding) =
       case binding of
         NixNormalBinding ann path expr ->
           L bindingLoc (NixNormalBinding ann path (L (getLoc expr) replacement))
@@ -593,7 +597,7 @@ isSubspanOfChecksEndColumns = do
 exactPrintPreservesQuotedStringSource :: Assertion
 exactPrintPreservesQuotedStringSource = do
   case runNixParser (nixExpr <* eof) "<expr>" "\"a$${b}c\"" of
-    (Right expr, _) -> renderExactPrint expr @?= "\"a$${b}c\""
+    (Right expr, _) -> renderExactText expr @?= "\"a$${b}c\""
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintRoundtripsQuotedStringSource :: Assertion
@@ -652,49 +656,67 @@ exactPrintPreservesInterpolatedSelectAttrPath =
 exactPrintSafeApiPreservesTrailingAsPattern :: Assertion
 exactPrintSafeApiPreservesTrailingAsPattern = do
   case runNixParser nixFile "<lambda>" "{x}@a: x" of
-    (Right expr, _) -> renderExactPrintM expr @?= Right "{x}@a: x"
+    (Right expr, _) -> renderExactTextM expr @?= Right "{x}@a: x"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesIndentedStringSource :: Assertion
 exactPrintPreservesIndentedStringSource = do
   case runNixParser (nixExpr <* eof) "<expr>" "''a${b}c''" of
-    (Right expr, _) -> renderExactPrint expr @?= "''a${b}c''"
+    (Right expr, _) -> renderExactText expr @?= "''a${b}c''"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesLiteralPath :: Assertion
 exactPrintPreservesLiteralPath = do
   case runNixParser (nixExpr <* eof) "<expr>" "./nix" of
-    (Right expr, _) -> renderExactPrint expr @?= "./nix"
+    (Right expr, _) -> renderExactText expr @?= "./nix"
+    (Left err, _) -> assertFailure $ errorBundlePretty err
+
+exactPrintPreservesInterpolatedPath :: Assertion
+exactPrintPreservesInterpolatedPath = do
+  case runNixParser (nixExpr <* eof) "<expr>" "./${a}-${b}/c/d${e}" of
+    (Right expr, _) -> renderExactText expr @?= "./${a}-${b}/c/d${e}"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesEnvPath :: Assertion
 exactPrintPreservesEnvPath = do
   case runNixParser (nixExpr <* eof) "<expr>" "<nixpkgs/nixos>" of
-    (Right expr, _) -> renderExactPrint expr @?= "<nixpkgs/nixos>"
+    (Right expr, _) -> renderExactText expr @?= "<nixpkgs/nixos>"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesDynamicAttrBinding :: Assertion
 exactPrintPreservesDynamicAttrBinding = do
   case runNixParser nixFile "<set>" "{ \"${dynamic}\".${attr} = g; }" of
-    (Right expr, _) -> renderExactPrint expr @?= "{ \"${dynamic}\".${attr} = g; }"
+    (Right expr, _) -> renderExactText expr @?= "{ \"${dynamic}\".${attr} = g; }"
+    (Left err, _) -> assertFailure $ errorBundlePretty err
+
+exactPrintPreservesDynamicStringAttrBinding :: Assertion
+exactPrintPreservesDynamicStringAttrBinding = do
+  case runNixParser nixFile "<set>" "{ \"a${b}c\" = g; }" of
+    (Right expr, _) -> renderExactText expr @?= "{ \"a${b}c\" = g; }"
+    (Left err, _) -> assertFailure $ errorBundlePretty err
+
+exactPrintPreservesStructuralDynamicInterpolAttrBinding :: Assertion
+exactPrintPreservesStructuralDynamicInterpolAttrBinding = do
+  case runNixParser nixFile "<set>" "{ ${a + b} = g; }" of
+    (Right expr, _) -> renderExactText expr @?= "{ ${a + b} = g; }"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesInheritBinding :: Assertion
 exactPrintPreservesInheritBinding = do
   case runNixParser nixFile "<set>" "{ inherit (s) m g; }" of
-    (Right expr, _) -> renderExactPrint expr @?= "{ inherit (s) m g; }"
+    (Right expr, _) -> renderExactText expr @?= "{ inherit (s) m g; }"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesLambdaVarPattern :: Assertion
 exactPrintPreservesLambdaVarPattern = do
   case runNixParser nixFile "<lambda>" "x: x" of
-    (Right expr, _) -> renderExactPrint expr @?= "x: x"
+    (Right expr, _) -> renderExactText expr @?= "x: x"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesLambdaSetPattern :: Assertion
 exactPrintPreservesLambdaSetPattern = do
   case runNixParser nixFile "<lambda>" "{ x ? 1, y ? {}, ... }: x" of
-    (Right expr, _) -> renderExactPrint expr @?= "{ x ? 1, y ? {}, ... }: x"
+    (Right expr, _) -> renderExactText expr @?= "{ x ? 1, y ? {}, ... }: x"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesMultilineLambdaChainLayout :: Assertion
@@ -704,59 +726,59 @@ exactPrintPreservesMultilineLambdaChainLayout =
 exactPrintPreservesApplication :: Assertion
 exactPrintPreservesApplication = do
   case runNixParser nixFile "<app>" "a b c" of
-    (Right expr, _) -> renderExactPrint expr @?= "a b c"
+    (Right expr, _) -> renderExactText expr @?= "a b c"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesHasAttr :: Assertion
 exactPrintPreservesHasAttr = do
   case runNixParser nixFile "<has-attr>" "a ? b" of
-    (Right expr, _) -> renderExactPrint expr @?= "a ? b"
+    (Right expr, _) -> renderExactText expr @?= "a ? b"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesWithExpr :: Assertion
 exactPrintPreservesWithExpr = do
   case runNixParser nixFile "<with>" "with l; 1" of
-    (Right expr, _) -> renderExactPrint expr @?= "with l; 1"
+    (Right expr, _) -> renderExactText expr @?= "with l; 1"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesAssertExpr :: Assertion
 exactPrintPreservesAssertExpr = do
   case runNixParser nixFile "<assert>" "assert a == 1; 2" of
-    (Right expr, _) -> renderExactPrint expr @?= "assert a == 1; 2"
+    (Right expr, _) -> renderExactText expr @?= "assert a == 1; 2"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintEmitsRootComments :: Assertion
 exactPrintEmitsRootComments = do
   case runNixParser nixFile "<comments>" "# hello\n1\n# bye" of
-    (Right expr, _) -> renderExactPrint expr @?= "# hello\n1\n# bye"
+    (Right expr, _) -> renderExactText expr @?= "# hello\n1\n# bye"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintEmitsClosingDelimitedComments :: Assertion
 exactPrintEmitsClosingDelimitedComments = do
   case runNixParser nixFile "<comments>" "[ a /* hello */ ]" of
-    (Right expr, _) -> renderExactPrint expr @?= "[ a /* hello */ ]"
+    (Right expr, _) -> renderExactText expr @?= "[ a /* hello */ ]"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesMultilineListLayout :: Assertion
 exactPrintPreservesMultilineListLayout = do
   case runNixParser nixFile "<list>" "[\n  a\n  b\n]" of
-    (Right expr, _) -> renderExactPrint expr @?= "[\n  a\n  b\n]"
+    (Right expr, _) -> renderExactText expr @?= "[\n  a\n  b\n]"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesMultilineSetLayout :: Assertion
 exactPrintPreservesMultilineSetLayout = do
   case runNixParser nixFile "<set>" "{\n  x = 1;\n  y = 2;\n}" of
-    (Right expr, _) -> renderExactPrint expr @?= "{\n  x = 1;\n  y = 2;\n}"
+    (Right expr, _) -> renderExactText expr @?= "{\n  x = 1;\n  y = 2;\n}"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesMultilineLetLayout :: Assertion
 exactPrintPreservesMultilineLetLayout = do
   case runNixParser nixFile "<let>" "let\n  x = 1;\nin\n  x" of
-    (Right expr, _) -> renderExactPrint expr @?= "let\n  x = 1;\nin\n  x"
+    (Right expr, _) -> renderExactText expr @?= "let\n  x = 1;\nin\n  x"
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
 exactPrintPreservesMultilineIfLayout :: Assertion
 exactPrintPreservesMultilineIfLayout = do
   case runNixParser nixFile "<if>" "if\n  a\nthen\n  b\nelse\n  c" of
-    (Right expr, _) -> renderExactPrint expr @?= "if\n  a\nthen\n  b\nelse\n  c"
+    (Right expr, _) -> renderExactText expr @?= "if\n  a\nthen\n  b\nelse\n  c"
     (Left err, _) -> assertFailure $ errorBundlePretty err

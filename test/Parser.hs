@@ -157,8 +157,7 @@ interpolatedPathParses :: Assertion
 interpolatedPathParses = do
   expr <- parseExprOrFail "./${a}-${b}/c/d${e}"
   case expr of
-    NixPath _ (L _ (NixInterpolPath (SourceText src) parts)) -> do
-      src @?= "./${a}-${b}/c/d${e}"
+    NixPath _ (L _ (NixInterpolPath NoExtF parts)) -> do
       length parts @?= 6
     _ -> assertFailure $ "expected interpolated path, got: " <> show expr
 
@@ -235,8 +234,9 @@ dynamicAttrBindingParses :: Assertion
 dynamicAttrBindingParses = do
   expr <- parseExprOrFail "{ \"${dynamic}\".${attr} = g; }"
   case expr of
-    NixSet _ _ (L _ [L _ (NixNormalBinding _ (L _ (NixAttrPath _ keys)) (L _ (NixVar _ (L _ "g"))))]) ->
-      length keys @?= 2
+    NixSet _ _ (L _ [L _ (NixNormalBinding _ (L _ (NixAttrPath _ [L _ (NixDynamicStringAttrKey NoExtF parts), L _ (NixDynamicInterpolAttrKey NoExtF (L _ (NixVar _ (L _ attr))))])) (L _ (NixVar _ (L _ "g"))))]) -> do
+      length parts @?= 1
+      attr @?= "attr"
     _ -> assertFailure $ "expected dynamic attr binding, got: " <> show expr
 
 normalBindingCarriesTypedAnn :: Assertion

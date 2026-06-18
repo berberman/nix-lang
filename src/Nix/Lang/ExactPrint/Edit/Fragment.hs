@@ -1,38 +1,38 @@
 -- | Parse standalone AST fragments for exact-print editing operations.
 module Nix.Lang.ExactPrint.Edit.Fragment
-  ( parseExprFragment,
-    parseBindingFragment,
-    parseAttrKeyFragment,
+  ( parseExpr,
+    parseBinding,
+    parseAttrKey,
   )
 where
 
 import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.ExactPrint.Edit.Types
-import Nix.Lang.ExactPrint.Operations
 import Nix.Lang.Parser (Parser, attrKey, located, nixBinding, nixExpr, runNixParser)
 import Nix.Lang.Span
+import Nix.Lang.Types
 import Text.Megaparsec (eof, errorBundlePretty)
 
 -- | Parse a standalone expression fragment.
-parseExprFragment :: Text -> EditResult LExpr
-parseExprFragment = parseFragment "<expr>" locatedExprParser ParseExprError
+parseExpr :: Text -> EditResult LExpr
+parseExpr = parseFragment "<expr>" locatedExprParser ParseExprError
   where
     locatedExprParser = do
       L l expr <- located nixExpr
       pure (L l expr)
 
 -- | Parse a standalone binding fragment.
-parseBindingFragment :: Text -> EditResult LBinding
-parseBindingFragment = parseFragment "<binding>" locatedBindingParser ParseBindingError
+parseBinding :: Text -> EditResult LBinding
+parseBinding = parseFragment "<binding>" locatedBindingParser ParseBindingError
   where
     locatedBindingParser = do
       L l binding <- located nixBinding
       pure (L l binding)
 
 -- | Parse a standalone attribute-key fragment.
-parseAttrKeyFragment :: Text -> EditResult LAttrKey
-parseAttrKeyFragment = parseFragment "<attr-key>" locatedKeyParser ParseAttrKeyError
+parseAttrKey :: Text -> EditResult LAttrKey
+parseAttrKey = parseFragment "<attr-key>" locatedKeyParser ParseAttrKeyError
   where
     locatedKeyParser = do
       L l key <- located attrKey
