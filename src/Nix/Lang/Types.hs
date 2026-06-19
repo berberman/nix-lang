@@ -123,8 +123,6 @@ type instance XNixAssert Ps = AnnAssertNode
 
 type instance XXNixExpr Ps = NoExtC
 
---------------------------------------------------------------------------------
-
 type Expr = NixExpr Ps
 
 type LExpr = Located Expr

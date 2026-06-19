@@ -67,8 +67,8 @@ library
 
   exposed-modules:
     Nix.Lang.Annotation
+    Nix.Lang.Edit
     Nix.Lang.ExactPrint
-    Nix.Lang.ExactPrint.Edit
     Nix.Lang.ExactPrint.Operations
     Nix.Lang.Outputable
     Nix.Lang.Parser
@@ -76,11 +76,9 @@ library
     Nix.Lang.Span
     Nix.Lang.Types
      Nix.Lang.Utils
-     Nix.Lang.Zipper
-     Nix.Lang.Zipper.Edit
-     Nix.Lang.Zipper.ExactPrint
 
   other-modules:
+    Nix.Lang.Edit.Internal.TH
     Nix.Lang.ExactPrint.Edit.Fragment
     Nix.Lang.ExactPrint.Edit.Geometry
     Nix.Lang.ExactPrint.Edit.Rebuild
