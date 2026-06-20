@@ -1,7 +1,7 @@
--- | Shared types for exact-print-aware edit operations.
-module Nix.Lang.ExactPrint.Edit.Types
-  ( EditResult,
-    EditError (..),
+-- | Shared types for internal exact-print preparation operations.
+module Nix.Lang.ExactPrint.Internal.Types
+  ( ExactPrintResult,
+    ExactPrintError (..),
     BindingInsertPosition (..),
     ListInsertPosition (..),
   )
@@ -9,14 +9,14 @@ where
 
 import Data.Text (Text)
 
--- | Result type used by pure edit and repair operations.
+-- | Result type used by pure exact-print preparation operations.
 --
--- The edit subsystem is intentionally modeled as a pure @Either@ pipeline:
--- operations either produce a repaired tree or an 'EditError'.
-type EditResult = Either EditError
+-- The exact-print preparation pipeline is intentionally modeled as a pure @Either@ pipeline:
+-- operations either produce a repaired tree or an 'ExactPrintError'.
+type ExactPrintResult = Either ExactPrintError
 
--- | Errors raised by exact-print edit and repair operations.
-data EditError
+-- | Errors raised by internal exact-print preparation operations.
+data ExactPrintError
   = NotASet
   | NotALet
   | NotAList

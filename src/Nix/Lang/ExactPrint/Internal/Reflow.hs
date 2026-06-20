@@ -1,14 +1,17 @@
-module Nix.Lang.ExactPrint.Reflow where
+-- | Low-level sequence reflow helpers used by internal exact-print rebuilding.
+module Nix.Lang.ExactPrint.Internal.Reflow where
 
 import Data.Text (Text)
 import Nix.Lang.ExactPrint.Operations
 import Nix.Lang.Span
 import Nix.Lang.Utils
 
+-- | Direction in which a rebuilt sequence should flow.
 data Flow
   = FlowInline
   | FlowMultiline
 
+-- | Reanchor and advance a sequence of items from left to right.
 reflow :: Flow -> (a -> Text) -> (RenderCursor -> Located a -> Located a) -> RenderCursor -> [Located a] -> [Located a]
 reflow flow renderItem moveItem startCursor = snd . foldl step (startCursor, [])
   where
@@ -17,6 +20,7 @@ reflow flow renderItem moveItem startCursor = snd . foldl step (startCursor, [])
           next = advanceItem flow renderItem cursor moved
        in (next, acc <> [moved])
 
+-- | Advance the cursor past one rebuilt item according to the chosen flow.
 advanceItem :: Flow -> (a -> Text) -> RenderCursor -> Located a -> RenderCursor
 advanceItem flow renderItem startCursor item =
   case flow of
@@ -25,6 +29,7 @@ advanceItem flow renderItem startCursor item =
   where
     endCursor = advanceCursor startCursor (renderItem (unLoc item))
 
+-- | Compute where a closing delimiter should be placed after a rebuilt sequence.
 closeAfter :: Flow -> (a -> Text) -> SrcSpan -> [Located a] -> RenderCursor
 closeAfter flow renderItem oldClose items =
   case reverse items of

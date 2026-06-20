@@ -1,8 +1,8 @@
--- | Container rebuilding and layout normalization for exact-print edits.
+-- | Container rebuilding and layout normalization for internal exact-print preparation.
 --
 -- This module owns the logic that reflows binding and element sequences while
 -- preserving exact-print token/comment relationships.
-module Nix.Lang.ExactPrint.Edit.Rebuild
+module Nix.Lang.ExactPrint.Internal.Rebuild
   ( BindingSequenceAnchor (..),
     rebuildSetLayout,
     rebuildSetLayoutWithAnchor,
@@ -19,10 +19,10 @@ where
 import Data.Data (Data)
 import Data.Text (Text)
 import Nix.Lang.Annotation
-import Nix.Lang.ExactPrint.Edit.Geometry
-import Nix.Lang.ExactPrint.Edit.Types
+import Nix.Lang.ExactPrint.Internal.Geometry
+import Nix.Lang.ExactPrint.Internal.Types
 import Nix.Lang.ExactPrint.Operations
-import Nix.Lang.ExactPrint.Reflow (Flow (..), closeAfter, reflow)
+import Nix.Lang.ExactPrint.Internal.Reflow (Flow (..), closeAfter, reflow)
 import Nix.Lang.Outputable (output)
 import Nix.Lang.Span
 import Nix.Lang.Types
@@ -43,7 +43,7 @@ data BodyLayoutStyle = BodyInline | BodyMultiline
 data BindingSequenceAnchor = AnchorPreserveExisting | AnchorStartAtFirstSlot
 
 -- | Rebuild a set from its current bindings while preserving exact-print metadata.
-rebuildSetLayout :: AnnSet -> NixSetIsRecursive -> [LBinding] -> EditResult Expr
+rebuildSetLayout :: AnnSet -> NixSetIsRecursive -> [LBinding] -> ExactPrintResult Expr
 rebuildSetLayout ann kind bindings = rebuildSetLayoutWithAnchor AnchorPreserveExisting ann kind bindings
 
 -- | Rebuild a set using an explicit anchor policy.
@@ -56,7 +56,7 @@ rebuildSetLayout ann kind bindings = rebuildSetLayoutWithAnchor AnchorPreserveEx
 -- * place the close token after the repaired binding sequence,
 -- * shift trailing comments with the close token,
 -- * normalize the final annotation for exact printing.
-rebuildSetLayoutWithAnchor :: BindingSequenceAnchor -> AnnSet -> NixSetIsRecursive -> [LBinding] -> EditResult Expr
+rebuildSetLayoutWithAnchor :: BindingSequenceAnchor -> AnnSet -> NixSetIsRecursive -> [LBinding] -> ExactPrintResult Expr
 rebuildSetLayoutWithAnchor anchorMode ann kind bindings =
   Right $ NixSet ann' kind (L bindingsSpan shiftedBindings)
   where
@@ -71,7 +71,8 @@ rebuildSetLayoutWithAnchor anchorMode ann kind bindings =
     closeShiftedComments = shiftComments closeSpan newCloseSpan (followingComments (annComments ann))
     annWithComments = setAnnCommon commonWithComments ann
     annWithClose = annWithComments {asCloseC = closeToken}
-    ann' = prepareSetLayout annWithClose shiftedBindings
+    preparedAnn = prepareSetLayout annWithClose shiftedBindings
+    ann' = preparedAnn {asCloseC = closeToken}
     closeToken = (asCloseC ann) {annTokenPos = AnnSpan newCloseSpan}
     commonWithComments =
       (getAnnCommon ann)
@@ -87,7 +88,7 @@ rebuildSetLayoutWithAnchor anchorMode ann kind bindings =
     bindingsSpan = listSpanOr base shiftedBindings
 
 -- | Rebuild a @let ... in ...@ container from its current children.
-rebuildLetLayout :: AnnLetNode -> [LBinding] -> LExpr -> EditResult Expr
+rebuildLetLayout :: AnnLetNode -> [LBinding] -> LExpr -> ExactPrintResult Expr
 rebuildLetLayout ann bindings body =
   rebuildLetLayoutWithAnchor AnchorPreserveExisting ann bindings body
 
@@ -95,7 +96,7 @@ rebuildLetLayout ann bindings body =
 --
 -- This follows the same sequence algorithm as sets, but also computes a fresh
 -- @in@ token position and then reanchors the body relative to that token.
-rebuildLetLayoutWithAnchor :: BindingSequenceAnchor -> AnnLetNode -> [LBinding] -> LExpr -> EditResult Expr
+rebuildLetLayoutWithAnchor :: BindingSequenceAnchor -> AnnLetNode -> [LBinding] -> LExpr -> ExactPrintResult Expr
 rebuildLetLayoutWithAnchor anchorMode ann bindings body =
   Right $ NixLet finalAnn (L bindingsSpan shiftedBindings) shiftedBody
   where
@@ -115,11 +116,11 @@ rebuildLetLayoutWithAnchor anchorMode ann bindings body =
     base = letSpan `combineSrcSpans` newInSpan `combineSrcSpans` getLoc shiftedBody
     letSpan' = foldr combineSrcSpans base (bindingSpan . unLoc <$> shiftedBindings)
     annCommon' = (getAnnCommon preparedAnn) {acPos = AnnSpan letSpan'}
-    finalAnn = setAnnCommon annCommon' preparedAnn
+    finalAnn = setAnnCommon annCommon' (preparedAnn {alIn = inToken})
     bindingsSpan = listSpanOr (letSpan `combineSrcSpans` newInSpan) shiftedBindings
 
 -- | Rebuild a list expression from its current elements.
-rebuildListLayout :: AnnListNode -> [LExpr] -> EditResult Expr
+rebuildListLayout :: AnnListNode -> [LExpr] -> ExactPrintResult Expr
 rebuildListLayout ann xs =
   rebuildListLayoutWithAnchor AnchorPreserveExisting ann xs
 
@@ -128,7 +129,7 @@ rebuildListLayout ann xs =
 -- This is the list analogue of 'rebuildSetLayoutWithAnchor': it reflows the
 -- element sequence, then recomputes the closing bracket and any trailing
 -- comments attached to it.
-rebuildListLayoutWithAnchor :: BindingSequenceAnchor -> AnnListNode -> [LExpr] -> EditResult Expr
+rebuildListLayoutWithAnchor :: BindingSequenceAnchor -> AnnListNode -> [LExpr] -> ExactPrintResult Expr
 rebuildListLayoutWithAnchor anchorMode ann xs =
   Right $ NixList ann' shiftedElems
   where
@@ -387,7 +388,7 @@ normalizeBindingLayout (L l binding) = L l $ case binding of
              in normalizeExprLayout (translateFromTo (getLoc expr) targetExprSpan expr)
           Nothing -> normalizeExprLayout expr
         semTok = case annTokenSrcSpan (anbSemicolon ann) of
-          Just semiSpan -> mapTokenToDelta (deltaFromAnchor (exprSpan (unLoc expr')) semiSpan) (anbSemicolon ann)
+          Just _ -> mapTokenToDelta (DeltaPos 0 0) (anbSemicolon ann)
           Nothing -> anbSemicolon ann
      in NixNormalBinding ann {anbEqual = equalTok, anbSemicolon = semTok} path' expr'
   other -> other

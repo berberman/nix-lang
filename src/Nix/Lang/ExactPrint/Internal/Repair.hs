@@ -1,9 +1,9 @@
 -- | Internal recursive repair engine for exact-print normalization.
 --
--- This module owns the transition from structurally edited subtrees to
+-- This module owns the transition from structurally modified subtrees to
 -- exact-print-ready nodes by recursively repairing spans and token-relative
 -- annotations.
-module Nix.Lang.ExactPrint.Repair
+module Nix.Lang.ExactPrint.Internal.Repair
   ( repairExprLayout,
     repairBindingLayout,
     repairAttrPathLayout,
@@ -16,9 +16,9 @@ import Control.Monad.Reader (ReaderT (..), ask, local, runReaderT)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.Annotation
-import Nix.Lang.ExactPrint.Edit.Geometry
-import Nix.Lang.ExactPrint.Edit.Rebuild
-import Nix.Lang.ExactPrint.Edit.Types
+import Nix.Lang.ExactPrint.Internal.Geometry
+import Nix.Lang.ExactPrint.Internal.Rebuild
+import Nix.Lang.ExactPrint.Internal.Types
 import Nix.Lang.ExactPrint.Operations
 import Nix.Lang.Outputable (output)
 import Nix.Lang.Span
@@ -31,9 +31,9 @@ newtype RepairContext = RepairContext
   { repairCursor :: RenderCursor
   }
 
-type RepairM = ReaderT RepairContext EditResult
+type RepairM = ReaderT RepairContext ExactPrintResult
 
-runRepairAt :: RenderCursor -> RepairM a -> EditResult a
+runRepairAt :: RenderCursor -> RepairM a -> ExactPrintResult a
 runRepairAt cursor = flip runReaderT (RepairContext cursor)
 
 withRepairCursor :: RenderCursor -> RepairM a -> RepairM a
@@ -42,19 +42,19 @@ withRepairCursor cursor = local (\ctx -> ctx {repairCursor = cursor})
 currentRepairCursor :: RepairM RenderCursor
 currentRepairCursor = repairCursor <$> ask
 
-repairExprLayout :: Expr -> EditResult Expr
+repairExprLayout :: Expr -> ExactPrintResult Expr
 repairExprLayout = repairLocatedLayout exprSpan repairExpr
 
-repairBindingLayout :: Binding -> EditResult Binding
+repairBindingLayout :: Binding -> ExactPrintResult Binding
 repairBindingLayout = repairLocatedLayout bindingSpan repairBinding
 
-repairAttrPathLayout :: AttrPath -> EditResult AttrPath
+repairAttrPathLayout :: AttrPath -> ExactPrintResult AttrPath
 repairAttrPathLayout = repairLocatedLayout attrPathSpan repairAttrPath
 
-repairFuncPatLayout :: FuncPat -> EditResult FuncPat
+repairFuncPatLayout :: FuncPat -> ExactPrintResult FuncPat
 repairFuncPatLayout = repairLocatedLayout funcPatBodySpan repairFuncPat
 
-repairLocatedLayout :: (a -> SrcSpan) -> (Located a -> RepairM (Located a)) -> a -> EditResult a
+repairLocatedLayout :: (a -> SrcSpan) -> (Located a -> RepairM (Located a)) -> a -> ExactPrintResult a
 repairLocatedLayout spanOf repair value =
   unLoc <$> runRepairAt (spanStartCursor span') (repair (L span' value))
   where
@@ -125,7 +125,7 @@ repairPar :: SrcSpan -> AnnParNode -> LExpr -> RepairM LExpr
 repairPar originalSpan ann inner = do
   let openSpan = tokenSpanAt (spanStartCursor originalSpan) (apnOpenP ann)
   inner' <- repairChildAfter (expectTokenSpan "paren open" (apnOpenP ann)) (getLoc inner) openSpan inner
-  let closeSpan = preserveGapSpan (getLoc inner) (expectTokenSpan "paren close" (apnCloseP ann)) inner'
+  let closeSpan = preserveGapSpan (getLoc inner) (tokenSpanFromAnchor "paren close" (getLoc inner') (apnCloseP ann)) inner'
       ann0 = ann {apnOpenP = (apnOpenP ann) {annTokenPos = AnnSpan openSpan}, apnCloseP = (apnCloseP ann) {annTokenPos = AnnSpan closeSpan}}
       ann' = setAnnSpan (openSpan `combineSrcSpans` closeSpan) (prepareParLayout ann0 (unLoc inner'))
       expr' = NixPar ann' inner'
@@ -177,20 +177,28 @@ repairPrefix originalSpan ann mkNode inner = do
 repairList :: AnnListNode -> [LExpr] -> RepairM LExpr
 repairList ann xs = do
   xs' <- mapM repairExpr xs
-  repaired <- liftEditResult (rebuildListLayout ann xs')
+  repaired <- liftExactPrintResult(rebuildListLayout ann xs')
   pure (L (exprSpan repaired) repaired)
 
 repairSet :: AnnSet -> NixSetIsRecursive -> [LBinding] -> RepairM LExpr
 repairSet ann kind bindings = do
   bindings' <- mapM repairBinding bindings
-  repaired <- liftEditResult (rebuildSetLayout ann kind bindings')
+  repaired <- liftExactPrintResult(rebuildSetLayout ann kind bindings')
   pure (L (exprSpan repaired) repaired)
 
 repairLet :: AnnLetNode -> [LBinding] -> LExpr -> RepairM LExpr
 repairLet ann bindings body = do
   bindings' <- mapM repairBinding bindings
-  body' <- repairExpr body
-  repaired <- liftEditResult (rebuildLetLayout ann bindings' body')
+  provisional <- liftExactPrintResult(rebuildLetLayout ann bindings' body)
+  let newInSpan = case provisional of
+        NixLet ann' _ _ -> expectTokenSpan "in keyword" (alIn ann')
+        _ -> error "impossible: rebuildLetLayout did not return let"
+      oldInSpan = expectTokenSpan "in keyword" (alIn ann)
+      bodyCursor
+        | srcSpanStartLine (getLoc body) > srcSpanEndLine oldInSpan = RenderCursor (srcSpanEndLine newInSpan + 1) (srcSpanStartColumn (getLoc body))
+        | otherwise = preserveGapTarget oldInSpan (getLoc body) newInSpan
+  body' <- repairExprAt bodyCursor body
+  repaired <- liftExactPrintResult(rebuildLetLayout ann bindings' body')
   pure (L (exprSpan repaired) repaired)
 
 repairHasAttr :: SrcSpan -> AnnHasAttr -> LExpr -> LAttrPath -> RepairM LExpr
@@ -261,9 +269,9 @@ repairBinding (L originalSpan node) =
 repairNormalBinding :: SrcSpan -> AnnNormalBinding -> LAttrPath -> LExpr -> RepairM LBinding
 repairNormalBinding originalSpan ann path expr = do
   path' <- repairAttrPathAt (spanStartCursor originalSpan) path
-  let eqSpan = preserveGapSpan (attrPathSpan (unLoc path)) (expectTokenSpan "binding equals" (anbEqual ann)) path'
-  expr' <- repairExprAt (preserveGapTarget (expectTokenSpan "binding equals" (anbEqual ann)) (getLoc expr) eqSpan) expr
-  let semiSpan = preserveGapSpan (getLoc expr) (expectTokenSpan "binding semicolon" (anbSemicolon ann)) expr'
+  let eqSpan = preserveGapSpan (attrPathSpan (unLoc path)) (tokenSpanFromAnchor "binding equals" (attrPathSpan (unLoc path')) (anbEqual ann)) path'
+  expr' <- repairExprAt (preserveGapTarget (tokenSpanFromAnchor "binding equals" (attrPathSpan (unLoc path')) (anbEqual ann)) (getLoc expr) eqSpan) expr
+  let semiSpan = preserveGapSpan (getLoc expr) (tokenSpanFromAnchor "binding semicolon" (getLoc expr') (anbSemicolon ann)) expr'
       ann' = setAnnSpan span' ann {anbEqual = (anbEqual ann) {annTokenPos = AnnSpan eqSpan}, anbSemicolon = (anbSemicolon ann) {annTokenPos = AnnSpan semiSpan}}
       span' = attrPathSpan (unLoc path') `combineSrcSpans` semiSpan
   pure (L span' (NixNormalBinding ann' path' expr'))
@@ -293,7 +301,7 @@ repairAttrPathAt :: RenderCursor -> LAttrPath -> RepairM LAttrPath
 repairAttrPathAt cursor (L _ (NixAttrPath ann keys)) =
   withRepairCursor cursor $
     case keys of
-      [] -> liftEditResult (Left EmptyAttrPathEdit)
+      [] -> liftExactPrintResult(Left EmptyAttrPathEdit)
       firstKey : restKeys -> repairAttrPathHead ann keys firstKey restKeys
 
 repairAttrPathHead :: AnnAttrPath -> [LAttrKey] -> LAttrKey -> [LAttrKey] -> RepairM LAttrPath
@@ -419,17 +427,25 @@ repairAttrTail (dotTok : dotToks) (key : keys) oldPrev newPrev = do
   key' <- repairAttrKeyAt (preserveGapTarget dotSpan (getLoc key) dotSpan) key
   (dots', keys') <- repairAttrTail dotToks keys (getLoc key) key'
   pure (dotTok {annTokenPos = AnnSpan dotSpan} : dots', key' : keys')
-repairAttrTail dots keys _ _ = liftEditResult (Left (IndexOutOfRange (length dots) (length keys)))
+repairAttrTail dots keys _ _ = liftExactPrintResult(Left (IndexOutOfRange (length dots) (length keys)))
 
 repairInheritNames :: SrcSpan -> Maybe LExpr -> Maybe LExpr -> [LAttrKey] -> RepairM [LAttrKey]
-repairInheritNames inheritSpan oldScope newScope names = snd <$> foldM step (startAnchor, []) names
+repairInheritNames inheritSpan oldScope newScope names = third <$> foldM step (oldStartAnchor, startAnchor, []) names
   where
+    third (_, _, repaired) = repaired
     startAnchor = maybe inheritSpan getLoc newScope
     oldStartAnchor = maybe inheritSpan getLoc oldScope
-    step (prevNew, repaired) name = do
-      let oldPrev = if null repaired then oldStartAnchor else getLoc (last names)
-      name' <- repairAttrKeyAt (preserveGapTarget oldPrev (getLoc name) prevNew) name
-      pure (getLoc name', repaired <> [name'])
+    step (prevOld, prevNew, repaired) name = do
+      name' <- repairAttrKeyAt (preserveGapTarget prevOld (getLoc name) prevNew) name
+      pure (getLoc name, getLoc name', repaired <> [name'])
+
+tokenSpanFromAnchor :: Text -> SrcSpan -> AnnToken -> SrcSpan
+tokenSpanFromAnchor label anchor tok =
+  case annTokenSrcSpan tok of
+    Just span' -> span'
+    Nothing -> case annTokenDelta tok of
+      Just delta -> applyDeltaToAnchor anchor delta
+      Nothing -> error (T.unpack label <> ": missing token span")
 
 repairExprAtSelect :: AnnSelect -> LAttrPath -> LAttrPath -> LExpr -> RepairM LExpr
 repairExprAtSelect ann oldPath newPath oldDef =
@@ -439,8 +455,8 @@ repairExprAtSelect ann oldPath newPath oldDef =
        in repairExprAt (preserveGapTarget (expectTokenSpan "select or" orTok) (getLoc oldDef) orSpan) oldDef
     Nothing -> repairExpr oldDef
 
-liftEditResult :: EditResult a -> RepairM a
-liftEditResult = ReaderT . const
+liftExactPrintResult :: ExactPrintResult a -> RepairM a
+liftExactPrintResult = ReaderT . const
 
 repairSetPatCloseSpan :: AnnSetPatNode -> [LSetPatBinding] -> NixSetPatEllipses -> SrcSpan
 repairSetPatCloseSpan ann bindings _ =

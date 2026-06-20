@@ -79,13 +79,13 @@ library
 
   other-modules:
     Nix.Lang.Edit.Internal.TH
-    Nix.Lang.ExactPrint.Edit.Fragment
-    Nix.Lang.ExactPrint.Edit.Geometry
-    Nix.Lang.ExactPrint.Edit.Rebuild
-    Nix.Lang.ExactPrint.Edit.Types
-    Nix.Lang.ExactPrint.Finalize
-    Nix.Lang.ExactPrint.Reflow
-    Nix.Lang.ExactPrint.Repair
+    Nix.Lang.ExactPrint.Internal.Fragment
+    Nix.Lang.ExactPrint.Internal.Geometry
+    Nix.Lang.ExactPrint.Internal.Reflow
+    Nix.Lang.ExactPrint.Internal.Repair
+    Nix.Lang.ExactPrint.Internal.Rebuild
+    Nix.Lang.ExactPrint.Internal.Types
+    Nix.Lang.ExactPrint.Prepare
 
   hs-source-dirs:  src
 

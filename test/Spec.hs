@@ -27,7 +27,15 @@ tests =
           testCase "editExpr repairs root replacements" editExprRootReplacement,
           testCase "editExpr preserves unrelated let binding layout" editExprPreservesUnrelatedLetLayout,
           testCase "editExpr repairs shape-changing replacement locally" editExprShapeChangingReplacement,
-          testCase "editExpr repairs list element replacement" editExprListElementReplacement
+          testCase "editExpr repairs list element replacement" editExprListElementReplacement,
+          testCase "editExpr supports binding lookup by key" editExprBindingLookupByKey,
+          testCase "editExpr supports binding lookup by path" editExprBindingLookupByPath,
+          testCase "editExpr supports let binding insertion" editExprLetBindingInsertion,
+          testCase "editExpr supports set binding insertion" editExprSetBindingInsertion,
+          testCase "editExpr supports inherit binding insertion" editExprInheritBindingInsertion,
+          testCase "editBinding supports inherit scope updates" editBindingInheritScopeUpdate,
+          testCase "editBinding supports inherit key updates" editBindingInheritKeyUpdate,
+          testCase "editBinding supports inherit key insertion" editBindingInheritKeyInsertion
         ]
     ]
 
@@ -124,4 +132,113 @@ editExprListElementReplacement = do
     Right x ->
       renderExactText (unLoc x)
         @?= "[\n  1\n  200\n  3\n]"
+    Left err -> fail $ show err
+
+editExprBindingLookupByKey :: Assertion
+editExprBindingLookupByKey = do
+  let expr :: LExpr =
+        [nixQQ|
+          {
+            a = 1;
+            b = 2;
+          }
+        |]
+  case editExpr (bindingByKey "b" // bindingValue) (setIntLiteral 20) expr of
+    Right x ->
+      renderExactText (unLoc x)
+        @?= "{\n  a = 1;\n  b = 20;\n}"
+    Left err -> fail $ show err
+
+editExprBindingLookupByPath :: Assertion
+editExprBindingLookupByPath = do
+  let expr :: LExpr =
+        [nixQQ|
+          {
+            services.nginx.enable = false;
+          }
+        |]
+  case editExpr (bindingByPath ["services", "nginx", "enable"] // bindingValue) (replaceExprText "true") expr of
+    Right x ->
+      renderExactText (unLoc x)
+        @?= "{\n  services.nginx.enable = true;\n}"
+    Left err -> fail $ show err
+
+editExprLetBindingInsertion :: Assertion
+editExprLetBindingInsertion = do
+  let expr :: LExpr =
+        [nixQQ|
+          let
+            a = 1;
+          in
+            a
+        |]
+  case editExpr root (insertBindingText (InsertBindingAt 1) "b = 2;") expr of
+    Right x ->
+      renderExactText (unLoc x)
+        @?= "let\n  a = 1;\n  b = 2;\nin\n  a"
+    Left err -> fail $ show err
+
+editExprSetBindingInsertion :: Assertion
+editExprSetBindingInsertion = do
+  let expr :: LExpr =
+        [nixQQ|
+          {
+            a = 1;
+            c = 3;
+          }
+        |]
+  case editExpr root (insertBindingText (InsertBindingAt 1) "b = 2;") expr of
+    Right x ->
+      renderExactText (unLoc x)
+        @?= "{\n  a = 1;\n  b = 2;\n  c = 3;\n}"
+    Left err -> fail $ show err
+
+editExprInheritBindingInsertion :: Assertion
+editExprInheritBindingInsertion = do
+  let expr :: LExpr =
+        [nixQQ|
+          {
+            a = 1;
+          }
+        |]
+  case editExpr root (insertBindingText (InsertBindingAt 0) "inherit (pkgs) lib;") expr of
+    Right x ->
+      renderExactText (unLoc x)
+        @?= "{\n  inherit (pkgs) lib;\n  a = 1;\n}"
+    Left err -> fail $ show err
+
+editBindingInheritScopeUpdate :: Assertion
+editBindingInheritScopeUpdate = do
+  let expr :: LExpr =
+        [nixQQ|
+          {
+            inherit (pkgs) lib;
+          }
+        |]
+  case editExpr (bindingByKey "lib" // inheritScope) (replaceExprText "scope") expr of
+    Right x -> renderExactText (unLoc x) @?= "{\n  inherit (scope) lib;\n}"
+    Left err -> fail $ show err
+
+editBindingInheritKeyUpdate :: Assertion
+editBindingInheritKeyUpdate = do
+  let expr :: LExpr =
+        [nixQQ|
+          {
+            inherit (pkgs) old other;
+          }
+        |]
+  case editExpr (bindingByKey "old" // inheritKey "old") (replaceAttrKeyText "new") expr of
+    Right x -> renderExactText (unLoc x) @?= "{\n  inherit (pkgs) new other;\n}"
+    Left err -> fail $ show err
+
+editBindingInheritKeyInsertion :: Assertion
+editBindingInheritKeyInsertion = do
+  let expr :: LExpr =
+        [nixQQ|
+          {
+            inherit (pkgs) a c;
+          }
+        |]
+  case editExpr (bindingByKey "a") (insertInheritKeyTextAt 1 "b") expr of
+    Right x -> renderExactText (unLoc x) @?= "{\n  inherit (pkgs) a b c;\n}"
     Left err -> fail $ show err

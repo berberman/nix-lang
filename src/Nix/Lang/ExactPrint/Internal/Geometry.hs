@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 
--- | Shared span, cursor, and translation helpers for exact-print repair.
-module Nix.Lang.ExactPrint.Edit.Geometry
+-- | Shared span, cursor, and translation helpers for internal exact-print preparation.
+module Nix.Lang.ExactPrint.Internal.Geometry
   ( bindingSpan,
     bindingRenderSpan,
     bindingComments,
@@ -173,7 +173,7 @@ listSpanOr _ xs = listSpan xs
 
 -- | Translate every span in a tree from one anchor span to another.
 --
--- This is the core structural move operation used by both edit actions and
+-- This is the core structural move operation used by both tree-moving callers and
 -- layout repair. The algorithm keeps every point's line/column offset relative
 -- to the original anchor, then replays that offset from the target anchor.
 translateFromTo :: (Data a) => SrcSpan -> SrcSpan -> a -> a

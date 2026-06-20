@@ -43,7 +43,7 @@ makeRequiredSelector RequiredSelectorSpec {..} = do
   replacementName <- newName "replacement"
   fieldNames <- traverse (newName . ("field" <>) . show) [0 .. fieldCount - 1]
   let targetName = fieldNames !! requiredFieldIndex
-      replacedFields = replaceAt requiredFieldIndex (VarE replacementName) (map VarE fieldNames)
+      replacedFields = replaceAt requiredFieldIndex (AppE (VarE (mkName "editedValue")) (VarE replacementName)) (map VarE fieldNames)
       selectorBody =
         AppE
           (AppE (VarE (mkName "required")) (LitE (StringL requiredSelectorLabel)))
@@ -76,7 +76,7 @@ makeOptionalSelector OptionalSelectorSpec {..} = do
   innerName <- newName "selectedValue"
   fieldNames <- traverse (newName . ("field" <>) . show) [0 .. fieldCount - 1]
   let targetName = fieldNames !! optionalFieldIndex
-      replacedFields = replaceAt optionalFieldIndex (AppE (ConE (mkName "Just")) (VarE replacementName)) (map VarE fieldNames)
+      replacedFields = replaceAt optionalFieldIndex (AppE (ConE (mkName "Just")) (AppE (VarE (mkName "editedValue")) (VarE replacementName))) (map VarE fieldNames)
       mappedSelected =
         AppE
           (AppE (VarE (mkName "flip")) (VarE (mkName "fmap")))
@@ -107,37 +107,43 @@ requiredSelected :: Name -> Name -> Name -> Name -> [Exp] -> Exp
 requiredSelected spanName targetName replacementName conName replacedFields =
   RecConE
     (mkName "Selected")
-    [ (mkName "selected", VarE targetName),
-      ( mkName "replaceSelected",
-        LamE
-          [VarP replacementName]
-          ( AppE
-              (ConE (mkName "Right"))
-              ( AppE
-                  (AppE (ConE (mkName "L")) (VarE spanName))
-                  (foldl AppE (ConE conName) replacedFields)
-              )
-          )
-      )
-    ]
+      [ (mkName "selected", VarE targetName),
+        ( mkName "replaceSelected",
+          LamE
+            [VarP replacementName]
+            ( AppE
+                (ConE (mkName "Right"))
+                ( AppE
+                    (ConE (mkName "Ready"))
+                    ( AppE
+                        (AppE (ConE (mkName "L")) (VarE spanName))
+                        (foldl AppE (ConE conName) replacedFields)
+                    )
+                )
+            )
+        )
+      ]
 
 optionalSelected :: Name -> Name -> Name -> Name -> [Exp] -> Exp
 optionalSelected spanName innerName replacementName conName replacedFields =
   RecConE
     (mkName "Selected")
-    [ (mkName "selected", VarE innerName),
-      ( mkName "replaceSelected",
-        LamE
-          [VarP replacementName]
-          ( AppE
-              (ConE (mkName "Right"))
-              ( AppE
-                  (AppE (ConE (mkName "L")) (VarE spanName))
-                  (foldl AppE (ConE conName) replacedFields)
-              )
-          )
-      )
-    ]
+      [ (mkName "selected", VarE innerName),
+        ( mkName "replaceSelected",
+          LamE
+            [VarP replacementName]
+            ( AppE
+                (ConE (mkName "Right"))
+                ( AppE
+                    (ConE (mkName "Ready"))
+                    ( AppE
+                        (AppE (ConE (mkName "L")) (VarE spanName))
+                        (foldl AppE (ConE conName) replacedFields)
+                    )
+                )
+            )
+        )
+      ]
 
 constructorArity :: Name -> Q Int
 constructorArity name = do
