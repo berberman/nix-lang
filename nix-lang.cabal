@@ -75,15 +75,15 @@ library
     Nix.Lang.QQ
     Nix.Lang.Span
     Nix.Lang.Types
-     Nix.Lang.Utils
+    Nix.Lang.Utils
 
   other-modules:
     Nix.Lang.Edit.Internal.TH
     Nix.Lang.ExactPrint.Internal.Fragment
     Nix.Lang.ExactPrint.Internal.Geometry
+    Nix.Lang.ExactPrint.Internal.Rebuild
     Nix.Lang.ExactPrint.Internal.Reflow
     Nix.Lang.ExactPrint.Internal.Repair
-    Nix.Lang.ExactPrint.Internal.Rebuild
     Nix.Lang.ExactPrint.Internal.Types
     Nix.Lang.ExactPrint.Prepare
 

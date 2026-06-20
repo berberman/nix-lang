@@ -10,13 +10,13 @@ parseExprOrFail :: T.Text -> IO (NixExpr Ps)
 parseExprOrFail src =
   case runNixParser (nixExpr <* eof) "<expr>" src of
     (Right expr, _) -> pure expr
-    (Left err, _) -> assertFailure (errorBundlePretty err) >> error "unreachable"
+    (Left err, _) -> assertFailure (errorBundlePretty err)
 
 parseFileOrFail :: FilePath -> T.Text -> IO (NixExpr Ps)
 parseFileOrFail fp src =
   case runNixParser nixFile fp src of
     (Right expr, _) -> pure expr
-    (Left err, _) -> assertFailure (errorBundlePretty err) >> error "unreachable"
+    (Left err, _) -> assertFailure (errorBundlePretty err)
 
 parseExprFails :: T.Text -> Assertion
 parseExprFails src =

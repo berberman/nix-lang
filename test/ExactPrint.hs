@@ -99,12 +99,6 @@ assertExactPrintRoundtripFile fp src =
     (Right expr, _) -> renderExactText expr @?= src
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
-assertExactPrintMatches :: FilePath -> T.Text -> Assertion
-assertExactPrintMatches fp src =
-  case runNixParser nixFile fp src of
-    (Right expr, _) -> renderExactText expr @?= src
-    (Left err, _) -> assertFailure $ errorBundlePretty err
-
 lineCommentsCollected :: Assertion
 lineCommentsCollected = do
   expr <- parseFileOrFail "<comments>" "{\n  # hello\n  x = 1;\n}"
@@ -364,21 +358,21 @@ exactPrintRoundtripsSampleFixture = do
 
 exactPrintPreservesLambdaCommentShape :: Assertion
 exactPrintPreservesLambdaCommentShape =
-  assertExactPrintMatches
+  assertExactPrintRoundtripFile
     "<lambda-comments>"
     "let\n  # comment f\n  f =\n    x:\n    # comment y\n    y:\n    x;\nin f"
 
 exactPrintPreservesCommentNoWhitespace :: Assertion
 exactPrintPreservesCommentNoWhitespace =
-  assertExactPrintMatches "<comment-no-ws>" "{ comment_no_ws = [a/**/]; }"
+  assertExactPrintRoundtripFile "<comment-no-ws>" "{ comment_no_ws = [a/**/]; }"
 
 exactPrintPreservesTrailingCommaSetPattern :: Assertion
 exactPrintPreservesTrailingCommaSetPattern =
-  assertExactPrintMatches "<param-comma>" "{x,}: x"
+  assertExactPrintRoundtripFile "<param-comma>" "{x,}: x"
 
 exactPrintPreservesInterpolatedSelectAttrPath :: Assertion
 exactPrintPreservesInterpolatedSelectAttrPath =
-  assertExactPrintMatches "<sel-interpol>" "a.b.${c}.\"d\".\"${\"e\"}\""
+  assertExactPrintRoundtripFile "<sel-interpol>" "a.b.${c}.\"d\".\"${\"e\"}\""
 
 exactPrintSafeApiPreservesTrailingAsPattern :: Assertion
 exactPrintSafeApiPreservesTrailingAsPattern = do
@@ -448,7 +442,7 @@ exactPrintPreservesLambdaSetPattern = do
 
 exactPrintPreservesMultilineLambdaChainLayout :: Assertion
 exactPrintPreservesMultilineLambdaChainLayout =
-  assertExactPrintMatches "<lambda-multiline>" "x:\n  y:\n  x"
+  assertExactPrintRoundtripFile "<lambda-multiline>" "x:\n  y:\n  x"
 
 exactPrintPreservesApplication :: Assertion
 exactPrintPreservesApplication = do
