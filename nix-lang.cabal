@@ -75,6 +75,7 @@ library
     Nix.Lang.QQ
     Nix.Lang.Span
     Nix.Lang.Types
+    Nix.Lang.Types.Parsed
     Nix.Lang.Utils
 
   other-modules:

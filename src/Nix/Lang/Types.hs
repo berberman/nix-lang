@@ -7,15 +7,9 @@ module Nix.Lang.Types where
 
 import Data.Data (Data)
 import Data.Text (Text)
-import Nix.Lang.Annotation
 import Nix.Lang.Span
 
 --------------------------------------------------------------------------------
-data Ps deriving (Data)
-
-newtype SourceText = SourceText Text
-  deriving (Eq, Show, Ord, Data)
-
 data NoExtF = NoExtF
   deriving (Eq, Show, Data)
 
@@ -25,127 +19,8 @@ data NoExtC
 instance Show NoExtC where
   show _ = undefined
 
-type instance NixId Ps = Text
-
-type instance XNixUri Ps = NoExtF
-
-type instance XNixInteger Ps = NoExtF
-
-type instance XNixFloat Ps = NoExtF
-
-type instance XNixBoolean Ps = NoExtF
-
-type instance XNixNull Ps = NoExtF
-
-type instance XNixStringLiteral Ps = NoExtF
-
-type instance XNixStringInterpol Ps = NoExtF
-
-type instance XXNixStringPart Ps = NoExtC
-
-type instance XNixDoubleQuotesString Ps = SourceText
-
-type instance XNixDoubleSingleQuotesString Ps = SourceText
-
-type instance XXNixString Ps = NoExtC
-
-type instance XNixLiteralPath Ps = NoExtF
-
-type instance XNixInterpolPath Ps = NoExtF
-
-type instance XXNixPath Ps = NoExtC
-
-type instance XNixStaticAttrKey Ps = NoExtF
-
-type instance XNixDynamicStringAttrKey Ps = NoExtF
-
-type instance XNixDynamicInterpolAttrKey Ps = NoExtF
-
-type instance XXNixAttrKey Ps = NoExtC
-
-type instance XNixAttrPath Ps = AnnAttrPath
-
-type instance XNixNormalBinding Ps = AnnNormalBinding
-
-type instance XNixInheritBinding Ps = AnnInheritBinding
-
-type instance XXNixBinding Ps = NoExtC
-
-type instance XNixVarPat Ps = AnnVarPat
-
-type instance XNixSetPat Ps = AnnSetPatNode
-
-type instance XNixSetPatAs Ps = AnnSetPatAs
-
-type instance XNixSetPatBinding Ps = AnnSetPatBinding
-
-type instance XXNixFuncPat Ps = NoExtC
-
-type instance XNixVar Ps = AnnCommon
-
-type instance XNixLit Ps = AnnCommon
-
-type instance XNixPar Ps = AnnParNode
-
-type instance XXNixLit Ps = NoExtC
-
-type instance XNixString Ps = AnnStringNode
-
-type instance XNixPath Ps = AnnPathNode
-
-type instance XNixEnvPath Ps = AnnEnvPathNode
-
-type instance XNixLam Ps = AnnLamNode
-
-type instance XNixApp Ps = AnnAppNode
-
-type instance XNixBinApp Ps = AnnBinAppNode
-
-type instance XNixNotApp Ps = AnnPrefixNode
-
-type instance XNixNegApp Ps = AnnPrefixNode
-
-type instance XNixList Ps = AnnListNode
-
-type instance XNixSet Ps = AnnSet
-
-type instance XNixLet Ps = AnnLetNode
-
-type instance XNixHasAttr Ps = AnnHasAttr
-
-type instance XNixSelect Ps = AnnSelect
-
-type instance XNixIf Ps = AnnIfNode
-
-type instance XNixWith Ps = AnnWithNode
-
-type instance XNixAssert Ps = AnnAssertNode
-
-type instance XXNixExpr Ps = NoExtC
-
-type Expr = NixExpr Ps
-
-type LExpr = Located Expr
-
-type Binding = NixBinding Ps
-
-type LBinding = Located Binding
-
-type AttrPath = NixAttrPath Ps
-
-type LAttrPath = Located AttrPath
-
-type AttrKey = NixAttrKey Ps
-
-type LAttrKey = Located AttrKey
-
-type FuncPat = NixFuncPat Ps
-
-type LFuncPat = Located FuncPat
-
-type Lit = NixLit Ps
-
-type LLit = Located Lit
+type family XRec p a where
+  XRec p a = Located a
 
 --------------------------------------------------------------------------------
 data BinaryOp
@@ -225,7 +100,7 @@ deriving instance
   ) =>
   Show (NixLit p)
 
-type LNixLit p = Located (NixLit p)
+type LNixLit p = XRec p (NixLit p)
 
 type family XNixUri p
 
@@ -268,7 +143,7 @@ deriving instance
   ) =>
   Show (NixStringPart p)
 
-type LNixStringPart p = Located (NixStringPart p)
+type LNixStringPart p = XRec p (NixStringPart p)
 
 type family XNixStringLiteral p
 
@@ -309,7 +184,7 @@ deriving instance
   ) =>
   Show (NixString p)
 
-type LNixString p = Located (NixString p)
+type LNixString p = XRec p (NixString p)
 
 type family XNixDoubleQuotesString p
 
@@ -349,7 +224,7 @@ deriving instance
   ) =>
   Show (NixPath p)
 
-type LNixPath p = Located (NixPath p)
+type LNixPath p = XRec p (NixPath p)
 
 type family XNixLiteralPath p
 
@@ -391,7 +266,7 @@ deriving instance
   ) =>
   Show (NixAttrKey p)
 
-type LNixAttrKey p = Located (NixAttrKey p)
+type LNixAttrKey p = XRec p (NixAttrKey p)
 
 type family XNixStaticAttrKey p
 
@@ -410,7 +285,7 @@ deriving instance (Data p, Data (XNixAttrPath p), Data (NixAttrKey p)) => Data (
 
 deriving instance (Show (XNixAttrPath p), Show (NixAttrKey p)) => Show (NixAttrPath p)
 
-type LNixAttrPath p = Located (NixAttrPath p)
+type LNixAttrPath p = XRec p (NixAttrPath p)
 
 type family XNixAttrPath p
 
@@ -445,11 +320,11 @@ deriving instance
   ) =>
   Show (NixBinding p)
 
-type LNixBinding p = Located (NixBinding p)
+type LNixBinding p = XRec p (NixBinding p)
 
 type NixBindings p = [LNixBinding p]
 
-type LNixBindings p = Located (NixBindings p)
+type LNixBindings p = XRec p (NixBindings p)
 
 type family XNixNormalBinding p
 
@@ -478,7 +353,7 @@ deriving instance (Data p, Data (XNixSetPatAs p), Data (NixId p)) => Data (NixSe
 
 deriving instance (Show (XNixSetPatAs p), Show (NixId p)) => Show (NixSetPatAs p)
 
-type LNixSetPatAs p = Located (NixSetPatAs p)
+type LNixSetPatAs p = XRec p (NixSetPatAs p)
 
 --------------------------------------------------------------------------------
 
@@ -494,7 +369,7 @@ deriving instance (Data p, Data (XNixSetPatBinding p), Data (NixId p), Data (Nix
 
 deriving instance (Show (XNixSetPatBinding p), Show (NixId p), Show (NixExpr p)) => Show (NixSetPatBinding p)
 
-type LNixSetPatBinding p = Located (NixSetPatBinding p)
+type LNixSetPatBinding p = XRec p (NixSetPatBinding p)
 
 --------------------------------------------------------------------------------
 
@@ -532,7 +407,7 @@ deriving instance
   ) =>
   Show (NixFuncPat p)
 
-type LNixFuncPat p = Located (NixFuncPat p)
+type LNixFuncPat p = XRec p (NixFuncPat p)
 
 type family XNixVarPat p
 
@@ -661,9 +536,9 @@ deriving instance
 
 type family NixId p
 
-type LNixId p = Located (NixId p)
+type LNixId p = XRec p (NixId p)
 
-type LNixExpr p = Located (NixExpr p)
+type LNixExpr p = XRec p (NixExpr p)
 
 type family XXNixExpr p
 

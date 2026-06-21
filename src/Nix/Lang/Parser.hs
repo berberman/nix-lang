@@ -15,6 +15,7 @@ import Data.Void (Void)
 import Nix.Lang.Annotation
 import Nix.Lang.Span
 import Nix.Lang.Types
+import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
 import Text.Megaparsec hiding (State, Token, token)
 import Text.Megaparsec.Char

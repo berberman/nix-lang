@@ -34,6 +34,7 @@ import Nix.Lang.Annotation
 import Nix.Lang.ExactPrint.Operations
 import Nix.Lang.Span
 import Nix.Lang.Types
+import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
 
 -- | Recover the full render span of a binding.

@@ -13,7 +13,7 @@ where
 
 import Nix.Lang.ExactPrint.Internal.Types (ExactPrintResult)
 import Nix.Lang.ExactPrint.Internal.Repair
-import Nix.Lang.Types
+import Nix.Lang.Types.Parsed
 
 -- | Prepare an expression into an exact-print-ready form.
 prepareExpr :: Expr -> ExactPrintResult Expr

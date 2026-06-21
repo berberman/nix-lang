@@ -71,6 +71,7 @@ import Nix.Lang.ExactPrint.Operations (attrPathSpan, expectTokenSpan, exprSpan, 
 import Nix.Lang.ExactPrint.Prepare (prepareAttrPath, prepareBinding, prepareExpr, prepareFuncPat)
 import Nix.Lang.Span
 import Nix.Lang.Types
+import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
 
 data SelectError

@@ -23,6 +23,7 @@ import Nix.Lang.ExactPrint.Operations
 import Nix.Lang.Outputable (output)
 import Nix.Lang.Span
 import Nix.Lang.Types
+import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)

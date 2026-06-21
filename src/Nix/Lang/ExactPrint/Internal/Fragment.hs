@@ -11,7 +11,7 @@ import qualified Data.Text as T
 import Nix.Lang.ExactPrint.Internal.Types
 import Nix.Lang.Parser (Parser, attrKey, located, nixBinding, nixExpr, runNixParser)
 import Nix.Lang.Span
-import Nix.Lang.Types
+import Nix.Lang.Types.Parsed
 import Text.Megaparsec (eof, errorBundlePretty)
 
 -- | Parse a standalone expression fragment.

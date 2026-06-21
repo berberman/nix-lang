@@ -3,6 +3,7 @@ module Utils where
 import qualified Data.Text as T
 import Nix.Lang.Parser
 import Nix.Lang.Types
+import Nix.Lang.Types.Parsed
 import Test.Tasty.HUnit
 import Text.Megaparsec (eof, errorBundlePretty)
 

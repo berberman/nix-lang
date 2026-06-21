@@ -5,6 +5,7 @@ import Nix.Lang.Annotation
 import Nix.Lang.Parser
 import Nix.Lang.Span
 import Nix.Lang.Types
+import Nix.Lang.Types.Parsed
 import Test.Tasty
 import Test.Tasty.HUnit
 import Text.Megaparsec (errorBundlePretty, MonadParsec (eof))

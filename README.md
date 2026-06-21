@@ -1,6 +1,6 @@
 # nix-lang
 
-A toy parser for Nix language that produces "Trees that Grow" style annotated AST.
+A toy parser and exact printer for Nix language that produces and operates on [Trees that Grow](https://gitlab.haskell.org/ghc/ghc/-/wikis/implementing-trees-that-grow/trees-that-grow-guidance) style annotated AST. Inspired by [`ghc-exactprint`](https://hackage.haskell.org/package/ghc-exactprint), it supports lossless round-tripping while preserving comments, formatting , and multiline structure after modifying the syntax tree.
 
 ## Known unsupported syntaxes
 

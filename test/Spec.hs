@@ -6,7 +6,7 @@ import qualified ExactPrint
 import Nix.Lang.Edit
 import Nix.Lang.ExactPrint
 import Nix.Lang.QQ
-import Nix.Lang.Types
+import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
 import qualified Parser
 import Test.Tasty
