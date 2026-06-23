@@ -94,9 +94,9 @@ repairChildAfter :: SrcSpan -> SrcSpan -> SrcSpan -> LExpr -> RepairM LExpr
 repairChildAfter oldAnchor oldTarget newAnchor child =
   repairExprAt (preserveGapTarget oldAnchor oldTarget newAnchor) child
 
-repairVarExpr :: SrcSpan -> AnnCommon -> LId -> LExpr
+repairVarExpr :: SrcSpan -> AnnCommon -> LVarName -> LExpr
 repairVarExpr originalSpan ann ident =
-  let ident' = repairLocatedIdAt (spanStartCursor originalSpan) ident
+  let ident' = repairLocatedTextAt (spanStartCursor originalSpan) ident
       span' = getLoc ident'
       ann' = setAnnSpan span' ann
    in L span' (NixVar ann' ident')
@@ -334,7 +334,7 @@ repairFuncPatAt cursor (L _ node) =
   withRepairCursor cursor $
     case node of
       NixVarPat ann ident ->
-        let ident' = repairLocatedIdAt cursor ident
+        let ident' = repairLocatedTextAt cursor ident
             span' = getLoc ident'
             ann' = setAnnSpan span' ann {avpId = span'}
          in pure (L span' (NixVarPat ann' ident'))
@@ -365,7 +365,7 @@ repairAttrKeyAt cursor (L _ key) =
         NixDynamicStringAttrKey _ _ -> textSpanAt cursorFallbackFile cursor (renderAttrKeyTextLocal key)
         NixDynamicInterpolAttrKey _ _ -> textSpanAt cursorFallbackFile cursor (renderAttrKeyTextLocal key)
       key' = case key of
-        NixStaticAttrKey ann ident -> NixStaticAttrKey ann (repairLocatedIdAt cursor ident)
+        NixStaticAttrKey ann ident -> NixStaticAttrKey ann (repairLocatedTextAt cursor ident)
         other -> other
    in pure (L span' key')
 
@@ -381,12 +381,9 @@ repairLocatedPathAt cursor (L _ path) = L (textSpanAt cursorFallbackFile cursor 
 repairLocatedTextAt :: RenderCursor -> Located Text -> Located Text
 repairLocatedTextAt cursor (L _ txt) = L (textSpanAt cursorFallbackFile cursor txt) txt
 
-repairLocatedIdAt :: RenderCursor -> LId -> LId
-repairLocatedIdAt cursor (L _ ident) = L (textSpanAt cursorFallbackFile cursor ident) ident
-
 repairSetPatAsAt :: RenderCursor -> LSetPatAs -> RepairM LSetPatAs
 repairSetPatAsAt cursor (L _ asPat@NixSetPatAs {..}) =
-  let var' = repairLocatedIdAt cursor nspaVar
+  let var' = repairLocatedTextAt cursor nspaVar
       atSpan = case nspaLocation of
         NixSetPatAsLeading -> tokenSpanAt (spanEndCursor (getLoc var')) (aspaAt nspaAnn)
         NixSetPatAsTrailing -> tokenSpanAt cursor (aspaAt nspaAnn)
@@ -404,7 +401,7 @@ repairSetPatBindingsAt ann startCursor bindings = snd <$> foldM step (startCurso
 
 repairSetPatBindingAt :: AnnSetPatNode -> Int -> RenderCursor -> LSetPatBinding -> RepairM LSetPatBinding
 repairSetPatBindingAt _ _ cursor (L _ binding@NixSetPatBinding {..}) = do
-  let var' = repairLocatedIdAt cursor nspbVar
+  let var' = repairLocatedTextAt cursor nspbVar
   def' <- case nspbDefault of
     Nothing -> pure Nothing
     Just defExpr ->

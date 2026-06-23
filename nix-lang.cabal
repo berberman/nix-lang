@@ -74,6 +74,7 @@ library
     Nix.Lang.Parser
     Nix.Lang.QQ
     Nix.Lang.Span
+    Nix.Lang.Types.Base
     Nix.Lang.Types
     Nix.Lang.Types.Parsed
     Nix.Lang.Utils

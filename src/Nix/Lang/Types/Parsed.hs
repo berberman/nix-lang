@@ -5,14 +5,24 @@ module Nix.Lang.Types.Parsed where
 import Data.Data (Data)
 import Data.Text (Text)
 import Nix.Lang.Annotation
+import Nix.Lang.Span (Located (..))
 import Nix.Lang.Types
 
 data Ps deriving (Data)
 
+type instance XRec Ps a = Located a
+
+instance UnXRec Ps where
+  unXRec _ (L _ x) = x
+
 newtype SourceText = SourceText Text
   deriving (Eq, Show, Ord, Data)
 
-type instance NixId Ps = Text
+type instance NixVarName Ps = Text
+
+type instance NixBinderName Ps = Text
+
+type instance NixAttrName Ps = Text
 
 type instance XNixUri Ps = NoExtF
 

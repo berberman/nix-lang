@@ -54,8 +54,10 @@ module Nix.Lang.ExactPrint.Operations
     LSetPatBinding,
     SetPatAs,
     LSetPatAs,
-    Id,
-    LId,
+    BinderName,
+    LBinderName,
+    VarName,
+    LVarName,
     Lit,
     LLit,
     Path,
@@ -86,9 +88,13 @@ type SetPatAs = NixSetPatAs Ps
 
 type LSetPatAs = Located SetPatAs
 
-type Id = NixId Ps
+type BinderName = NixBinderName Ps
 
-type LId = Located Id
+type LBinderName = Located BinderName
+
+type VarName = NixVarName Ps
+
+type LVarName = Located VarName
 
 type Path = NixPath Ps
 
@@ -364,7 +370,7 @@ aspaAtSpan ann anchor = fromMaybe anchor (annTokenSrcSpan (aspaAt ann))
 --------------------------------------------------------------------------------
 
 -- | Recover the render span of a set-pattern @as@ binding.
-setPatAsRenderSpan :: AnnSetPatAs -> LId -> NixSetPatAsLocation -> SrcSpan
+setPatAsRenderSpan :: AnnSetPatAs -> LBinderName -> NixSetPatAsLocation -> SrcSpan
 setPatAsRenderSpan ann var loc =
   case loc of
     NixSetPatAsLeading -> getLoc var `combineSrcSpans` aspaAtSpan ann (getLoc var)

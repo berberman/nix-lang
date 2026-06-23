@@ -118,7 +118,7 @@ preserveGapTarget :: SrcSpan -> SrcSpan -> SrcSpan -> RenderCursor
 preserveGapTarget oldAnchor oldTarget newAnchor = spanStartCursor (applyDeltaToAnchor newAnchor (deltaFromAnchor oldAnchor oldTarget))
 
 -- | Preserve the default-expression gap for a set-pattern binding.
-preserveGapTargetForSetPat :: SetPatBinding -> LId -> LExpr -> RenderCursor
+preserveGapTargetForSetPat :: SetPatBinding -> LBinderName -> LExpr -> RenderCursor
 preserveGapTargetForSetPat binding var' oldDef =
   case aspbQuestion (nspbAnn binding) of
     Just qTok -> preserveGapTarget (expectTokenSpan "set pattern question" qTok) (getLoc oldDef) (preserveGapSpan (getLoc (nspbVar binding)) (expectTokenSpan "set pattern question" qTok) var')

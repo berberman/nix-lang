@@ -4,8 +4,8 @@ import Data.Data (Proxy (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.Parser (escapedChars)
-import Nix.Lang.Span
 import Nix.Lang.Types
+import Nix.Lang.Types.Base (Syn)
 import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
 import Prettyprinter
@@ -13,14 +13,101 @@ import Prettyprinter
 class Outputable a where
   output :: a -> Doc ann
 
-class OutputableId p where
-  outputId :: Proxy p -> NixId p -> Doc ann
+class OutputableNames p where
+  outputVarName :: Proxy p -> NixVarName p -> Doc ann
+  outputBinderName :: Proxy p -> NixBinderName p -> Doc ann
+  outputAttrName :: Proxy p -> NixAttrName p -> Doc ann
 
-instance OutputableId Ps where
-  outputId _ = pretty
+instance OutputableNames Ps where
+  outputVarName _ = pretty
+  outputBinderName _ = pretty
+  outputAttrName _ = pretty
+
+instance OutputableNames Syn where
+  outputVarName _ = pretty
+  outputBinderName _ = pretty
+  outputAttrName _ = pretty
 
 extErr :: a
 extErr = error "unimplemented for extension"
+
+unwrapText :: UnXRec p => Proxy p -> XRec p Text -> Text
+unwrapText = unXRec
+
+unwrapVarName :: UnXRec p => Proxy p -> LNixVarName p -> NixVarName p
+unwrapVarName = unXRec
+
+unwrapBinderName :: UnXRec p => Proxy p -> LNixBinderName p -> NixBinderName p
+unwrapBinderName = unXRec
+
+unwrapAttrName :: UnXRec p => Proxy p -> LNixAttrName p -> NixAttrName p
+unwrapAttrName = unXRec
+
+unwrapLit :: UnXRec p => Proxy p -> LNixLit p -> NixLit p
+unwrapLit = unXRec
+
+unwrapExpr :: UnXRec p => Proxy p -> LNixExpr p -> NixExpr p
+unwrapExpr = unXRec
+
+unwrapString :: UnXRec p => Proxy p -> LNixString p -> NixString p
+unwrapString = unXRec
+
+unwrapPath :: UnXRec p => Proxy p -> LNixPath p -> NixPath p
+unwrapPath = unXRec
+
+unwrapAttrKey :: UnXRec p => Proxy p -> LNixAttrKey p -> NixAttrKey p
+unwrapAttrKey = unXRec
+
+unwrapAttrPath :: UnXRec p => Proxy p -> LNixAttrPath p -> NixAttrPath p
+unwrapAttrPath = unXRec
+
+unwrapBinding :: UnXRec p => Proxy p -> LNixBinding p -> NixBinding p
+unwrapBinding = unXRec
+
+unwrapFuncPat :: UnXRec p => Proxy p -> LNixFuncPat p -> NixFuncPat p
+unwrapFuncPat = unXRec
+
+unwrapBindings :: UnXRec p => Proxy p -> LNixBindings p -> [LNixBinding p]
+unwrapBindings = unXRec
+
+unwrapStringPart :: UnXRec p => Proxy p -> LNixStringPart p -> NixStringPart p
+unwrapStringPart = unXRec
+
+unwrapSetPatAs :: UnXRec p => Proxy p -> LNixSetPatAs p -> NixSetPatAs p
+unwrapSetPatAs = unXRec
+
+unwrapSetPatBinding :: UnXRec p => Proxy p -> LNixSetPatBinding p -> NixSetPatBinding p
+unwrapSetPatBinding = unXRec
+
+outputLitX :: UnXRec p => Proxy p -> LNixLit p -> Doc ann
+outputLitX proxy lit = output (unwrapLit proxy lit)
+
+outputExprX :: (OutputableNames p, UnXRec p) => Proxy p -> LNixExpr p -> Doc ann
+outputExprX proxy expr = output (unwrapExpr proxy expr)
+
+outputStringX :: (OutputableNames p, UnXRec p) => Proxy p -> LNixString p -> Doc ann
+outputStringX proxy str = output (unwrapString proxy str)
+
+outputPathX :: (OutputableNames p, UnXRec p) => Proxy p -> LNixPath p -> Doc ann
+outputPathX proxy path = output (unwrapPath proxy path)
+
+outputAttrKeyX :: (OutputableNames p, UnXRec p) => Proxy p -> LNixAttrKey p -> Doc ann
+outputAttrKeyX proxy key = output (unwrapAttrKey proxy key)
+
+outputAttrPathX :: (OutputableNames p, UnXRec p) => Proxy p -> LNixAttrPath p -> Doc ann
+outputAttrPathX proxy path = output (unwrapAttrPath proxy path)
+
+outputBindingX :: (OutputableNames p, UnXRec p) => Proxy p -> LNixBinding p -> Doc ann
+outputBindingX proxy binding = output (unwrapBinding proxy binding)
+
+outputFuncPatX :: (OutputableNames p, UnXRec p) => Proxy p -> LNixFuncPat p -> Doc ann
+outputFuncPatX proxy pat = output (unwrapFuncPat proxy pat)
+
+outputSetPatBindingX :: (OutputableNames p, UnXRec p) => Proxy p -> LNixSetPatBinding p -> Doc ann
+outputSetPatBindingX proxy binding = output (unwrapSetPatBinding proxy binding)
+
+outputSetPatAsX :: (OutputableNames p, UnXRec p) => Proxy p -> LNixSetPatAs p -> Doc ann
+outputSetPatAsX proxy asPat = output (unwrapSetPatAs proxy asPat)
 
 instance Outputable (NixLit p) where
   output (NixUri _ uri) = pretty uri
@@ -30,105 +117,133 @@ instance Outputable (NixLit p) where
   output (NixNull _) = "null"
   output (XNixLit _) = extErr
 
-instance (OutputableId p) => Outputable (NixExpr p) where
-  output (NixLit _ (L _ lit)) = output lit
-  output (NixString _ (L _ str)) = output str
-  output (NixVar _ (L _ x)) = outputId (Proxy @p) x
-  output (NixPar _ (L _ x)) = parens $ output x
-  output (NixNegApp _ (L _ x)) = "-" <> output x
-  output (NixNotApp _ (L _ x)) = "!" <> output x
-  output (NixApp _ (L _ f) (L _ x)) = hsep [output f, output x]
-  output (NixBinApp _ op (L _ x) (L _ y)) =
-    hsep
-      [ output x,
-        pretty $ showBinOP op,
-        output y
-      ]
-  output (NixHasAttr _ (L _ x) (L _ p)) = hsep [output x, "?", output p]
-  output (NixPath _ (L _ p)) = output p
-  output (NixEnvPath _ (L _ p)) = "<" <> pretty p <> ">"
-  output (NixLam _ (L _ pat) (L _ x)) = nestedSep [output pat <> ":", output x]
-  output (NixList _ xs) = case xs of
-    [] -> "[]"
-    _ -> nestedSep $ "[" : (output . unLoc <$> xs) <> ["]"]
-  output (NixSet _ NixSetRecursive (L _ bindings)) = case bindings of
-    [] -> "rec {}"
-    xs -> nestedSep $ "rec {" : (output . unLoc <$> xs) <> ["}"]
-  output (NixSet _ NixSetNonRecursive (L _ bindings)) = case bindings of
-    [] -> "{}"
-    xs -> nestedSep $ "{" : (output . unLoc <$> xs) <> ["}"]
-  output (NixSelect _ (L _ x) (L _ p) mx) = output x <> "." <> output p <> alt
+instance (OutputableNames p, UnXRec p) => Outputable (NixExpr p) where
+  output = go
     where
-      alt = maybe mempty ((" or " <>) . output . unLoc) mx
-  output (NixLet _ (L _ bindings) (L _ x)) =
-    group $
-      vsep ["let", indent 2 (vsep $ output . unLoc <$> bindings), "in " <> output x]
-  output (NixIf _ (L _ cond) (L _ t) (L _ f)) = nestedSep ["if " <> output cond, "then " <> output t, "else " <> output f]
-  output (NixWith _ (L _ s) (L _ x)) = nestedSep ["with " <> output s <> ";", output x]
-  output (NixAssert _ (L _ s) (L _ x)) = nestedSep ["assert " <> output s <> ";", output x]
-  output (XNixExpr _) = extErr
+      proxy = Proxy @p
+
+      go (NixLit _ lit) = outputLitX proxy lit
+      go (NixString _ str) = outputStringX proxy str
+      go (NixVar _ x) = outputVarName proxy (unwrapVarName proxy x)
+      go (NixPar _ x) = parens $ outputExprX proxy x
+      go (NixNegApp _ x) = "-" <> outputExprX proxy x
+      go (NixNotApp _ x) = "!" <> outputExprX proxy x
+      go (NixApp _ f x) = hsep [outputExprX proxy f, outputExprX proxy x]
+      go (NixBinApp _ op x y) =
+        hsep
+          [ outputExprX proxy x,
+            pretty $ showBinOP op,
+            outputExprX proxy y
+          ]
+      go (NixHasAttr _ x p) = hsep [outputExprX proxy x, "?", outputAttrPathX proxy p]
+      go (NixPath _ p) = outputPathX proxy p
+      go (NixEnvPath _ p) = "<" <> pretty (unwrapText proxy p) <> ">"
+      go (NixLam _ pat x) = nestedSep [outputFuncPatX proxy pat <> ":", outputExprX proxy x]
+      go (NixList _ xs) = case xs of
+        [] -> "[]"
+        _ -> nestedSep $ "[" : (outputExprX proxy <$> xs) <> ["]"]
+      go (NixSet _ NixSetRecursive bindings) = case unwrapBindings proxy bindings of
+        [] -> "rec {}"
+        xs -> nestedSep $ "rec {" : (outputBindingX proxy <$> xs) <> ["}"]
+      go (NixSet _ NixSetNonRecursive bindings) = case unwrapBindings proxy bindings of
+        [] -> "{}"
+        xs -> nestedSep $ "{" : (outputBindingX proxy <$> xs) <> ["}"]
+      go (NixSelect _ x p mx) = outputExprX proxy x <> "." <> outputAttrPathX proxy p <> alt
+        where
+          alt = maybe mempty ((" or " <>) . outputExprX proxy) mx
+      go (NixLet _ bindings x) =
+        group $
+          vsep ["let", indent 2 (vsep $ outputBindingX proxy <$> unwrapBindings proxy bindings), "in " <> outputExprX proxy x]
+      go (NixIf _ cond t f) = nestedSep ["if " <> outputExprX proxy cond, "then " <> outputExprX proxy t, "else " <> outputExprX proxy f]
+      go (NixWith _ s x) = nestedSep ["with " <> outputExprX proxy s <> ";", outputExprX proxy x]
+      go (NixAssert _ s x) = nestedSep ["assert " <> outputExprX proxy s <> ";", outputExprX proxy x]
+      go (XNixExpr _) = extErr
 
 nestedSep :: [Doc ann] -> Doc ann
 nestedSep = group . nest 2 . vsep
 
-outputStringPart :: (OutputableId p) => (Text -> Text) -> NixStringPart p -> Doc ann
-outputStringPart escape (NixStringLiteral _ text) = pretty $ escape text
-outputStringPart _ (NixStringInterpol _ expr) = "${" <> output (unLoc expr) <> "}"
-outputStringPart _ (XNixStringPart _) = extErr
+outputStringPart :: forall p ann. (OutputableNames p, UnXRec p) => Proxy p -> (Text -> Text) -> NixStringPart p -> Doc ann
+outputStringPart _ escape (NixStringLiteral _ text) = pretty $ escape text
+outputStringPart proxy _ (NixStringInterpol _ expr) = "${" <> outputExprX proxy expr <> "}"
+outputStringPart _ _ (XNixStringPart _) = extErr
 
-instance (OutputableId p) => Outputable (NixString p) where
-  output (NixDoubleQuotesString _ parts) = dquotes $ outputParts $ fmap unLoc parts
+instance (OutputableNames p, UnXRec p) => Outputable (NixString p) where
+  output = go
     where
-      outputParts = mconcat . fmap (outputStringPart escape)
-      escape = foldr (.) id [T.replace (T.singleton char) (T.cons '\\' (T.singleton code)) | (code, char) <- escapedChars]
-  output (NixDoubleSingleQuotesString _ parts) = vcat ["''", nest 2 $ outputParts $ fmap unLoc parts, "''"]
+      proxy = Proxy @p
+
+      go (NixDoubleQuotesString _ parts) = dquotes $ outputParts $ fmap (unwrapStringPart proxy) parts
+        where
+          outputParts = mconcat . fmap (outputStringPart proxy escape)
+          escape = foldr (.) id [T.replace (T.singleton char) (T.cons '\\' (T.singleton code)) | (code, char) <- escapedChars]
+      go (NixDoubleSingleQuotesString _ parts) = vcat ["''", nest 2 $ outputParts $ fmap (unwrapStringPart proxy) parts, "''"]
+        where
+          outputParts = mconcat . fmap (outputStringPart proxy escape)
+          escape = foldr (.) id [T.replace "${" "''${", T.replace "''" "'''"]
+      go (XNixString _) = extErr
+
+instance (OutputableNames p, UnXRec p) => Outputable (NixAttrKey p) where
+  output = go
     where
-      outputParts = mconcat . fmap (outputStringPart escape)
-      escape = foldr (.) id [T.replace "${" "''${", T.replace "''" "'''"]
-  output (XNixString _) = extErr
+      proxy = Proxy @p
 
-instance (OutputableId p) => Outputable (NixAttrKey p) where
-  output (NixStaticAttrKey _ (L _ x)) = outputId (Proxy @p) x
-  output (NixDynamicStringAttrKey _ parts) = output $ NixDoubleQuotesString undefined parts
-  output (NixDynamicInterpolAttrKey _ expr) = "${" <> output (unLoc expr) <> "}"
-  output (XNixNixAttrKey _) = extErr
+      go (NixStaticAttrKey _ x) = outputAttrName proxy (unwrapAttrName proxy x)
+      go (NixDynamicStringAttrKey _ parts) = dquotes $ mconcat $ outputStringPart proxy escape . unwrapStringPart proxy <$> parts
+        where
+          escape = foldr (.) id [T.replace (T.singleton char) (T.cons '\\' (T.singleton code)) | (code, char) <- escapedChars]
+      go (NixDynamicInterpolAttrKey _ expr) = "${" <> outputExprX proxy expr <> "}"
+      go (XNixNixAttrKey _) = extErr
 
-instance (OutputableId p) => Outputable (NixAttrPath p) where
-  output (NixAttrPath _ keys) = hcat . punctuate dot $ output . unLoc <$> keys
+instance (OutputableNames p, UnXRec p) => Outputable (NixAttrPath p) where
+  output (NixAttrPath _ keys) = hcat . punctuate dot $ outputAttrKeyX (Proxy @p) <$> keys
 
-instance (OutputableId p) => Outputable (NixPath p) where
-  output (NixLiteralPath _ p) = pretty p
-  output (NixInterpolPath _ parts) = hcat $ outputStringPart id . unLoc <$> parts
-  output (XNixPath _) = extErr
-
-instance (OutputableId p) => Outputable (NixBinding p) where
-  output (NixNormalBinding _ (L _ p) (L _ x)) = hsep [output p, "=", output x] <> ";"
-  output (NixInheritBinding _ mScope names) = "inherit" <> outputScope <> outputNames names <> ";"
+instance (OutputableNames p, UnXRec p) => Outputable (NixPath p) where
+  output = go
     where
-      outputScope = maybe mempty ((" " <>) . output . unLoc) mScope
-      outputNames [] = mempty
-      outputNames ns = " " <> (align . fillSep $ output . unLoc <$> ns)
-  output (XNixBinding _) = extErr
+      proxy = Proxy @p
 
-instance (OutputableId p) => Outputable (NixSetPatBinding p) where
-  output (NixSetPatBinding {..}) = outputId (Proxy @p) (unLoc nspbVar) <> outputDefault
+      go (NixLiteralPath _ p) = pretty p
+      go (NixInterpolPath _ parts) = hcat $ outputStringPart proxy id . unwrapStringPart proxy <$> parts
+      go (XNixPath _) = extErr
+
+instance (OutputableNames p, UnXRec p) => Outputable (NixBinding p) where
+  output = go
     where
-      outputDefault = maybe mempty ((" ? " <>) . output . unLoc) nspbDefault
+      proxy = Proxy @p
 
-instance (OutputableId p) => Outputable (NixSetPatAs p) where
+      go (NixNormalBinding _ p x) = hsep [outputAttrPathX proxy p, "=", outputExprX proxy x] <> ";"
+      go (NixInheritBinding _ mScope names) = "inherit" <> outputScope <> outputNames names <> ";"
+        where
+          outputScope = maybe mempty ((" " <>) . outputExprX proxy) mScope
+          outputNames [] = mempty
+          outputNames ns = " " <> (align . fillSep $ outputAttrKeyX proxy <$> ns)
+      go (XNixBinding _) = extErr
+
+instance (OutputableNames p, UnXRec p) => Outputable (NixSetPatBinding p) where
+  output NixSetPatBinding {..} = outputBinderName proxy (unwrapBinderName proxy nspbVar) <> outputDefault
+    where
+      proxy = Proxy @p
+      outputDefault = maybe mempty ((" ? " <>) . outputExprX proxy) nspbDefault
+
+instance (OutputableNames p, UnXRec p) => Outputable (NixSetPatAs p) where
   output NixSetPatAs {..} = case nspaLocation of
     NixSetPatAsLeading -> outputNm <> "@"
     NixSetPatAsTrailing -> "@" <> outputNm
     where
-      outputNm = outputId (Proxy @p) $ unLoc nspaVar
+      proxy = Proxy @p
+      outputNm = outputBinderName proxy $ unwrapBinderName proxy nspaVar
 
-instance (OutputableId p) => Outputable (NixFuncPat p) where
-  output (NixVarPat _ (L _ x)) = outputId (Proxy @p) x
-  output (NixSetPat _ ellipses mAs params) = case mAs of
-    (Just (L _ NixSetPatAs {nspaLocation = NixSetPatAsLeading})) -> outputAs <> outputParams
-    (Just (L _ NixSetPatAs {nspaLocation = NixSetPatAsTrailing})) -> outputParams <> outputAs
-    Nothing -> outputParams
+instance (OutputableNames p, UnXRec p) => Outputable (NixFuncPat p) where
+  output = go
     where
-      outputAs = maybe mempty (output . unLoc) mAs
-      outputParams = encloseSep "{ " " }" ", " ((output . unLoc <$> params) <> ["..." | ellipses == NixSetPatIsEllipses])
-  output (XNixFuncPat _) = extErr
+      proxy = Proxy @p
+
+      go (NixVarPat _ x) = outputBinderName proxy (unwrapBinderName proxy x)
+      go (NixSetPat _ ellipses mAs params) = case fmap (nspaLocation . unwrapSetPatAs proxy) mAs of
+        Just NixSetPatAsLeading -> outputAs <> outputParams
+        Just NixSetPatAsTrailing -> outputParams <> outputAs
+        Nothing -> outputParams
+        where
+          outputAs = maybe mempty (outputSetPatAsX proxy) mAs
+          outputParams = encloseSep "{ " " }" ", " ((outputSetPatBindingX proxy <$> params) <> ["..." | ellipses == NixSetPatIsEllipses])
+      go (XNixFuncPat _) = extErr
