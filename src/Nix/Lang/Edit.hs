@@ -61,14 +61,14 @@ import Data.Generics (showConstr)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Nix.Lang.Annotation (AnnInheritBinding (..), AnnLetNode, alIn)
+import Nix.Lang.Annotation
 import Nix.Lang.Edit.Internal.TH
-import qualified Nix.Lang.ExactPrint.Internal.Fragment as EPF
-import Nix.Lang.ExactPrint.Internal.Geometry (bindingSpan, translateFromTo)
-import Nix.Lang.ExactPrint.Internal.Rebuild (BindingSequenceAnchor (AnchorPreserveExisting, AnchorStartAtFirstSlot), rebuildLetLayout, rebuildLetLayoutWithAnchor, rebuildListLayoutWithAnchor, rebuildSetLayout, rebuildSetLayoutWithAnchor)
+import qualified Nix.Lang.ExactPrint.Internal.Parse as EPP
+import Nix.Lang.ExactPrint.Internal.Rebuild
 import qualified Nix.Lang.ExactPrint.Internal.Types as EPT
-import Nix.Lang.ExactPrint.Operations (attrPathSpan, expectTokenSpan, exprSpan, funcPatBodySpan)
-import Nix.Lang.ExactPrint.Prepare (prepareAttrPath, prepareBinding, prepareExpr, prepareFuncPat)
+import Nix.Lang.ExactPrint.Internal.Utils
+import Nix.Lang.ExactPrint.Operations
+import Nix.Lang.ExactPrint.Prepare
 import Nix.Lang.Span
 import Nix.Lang.Types
 import Nix.Lang.Types.Parsed
@@ -99,8 +99,8 @@ data SelectError
 
 data EditError
   = SelectionError SelectError
-  | UpdateError EPT.ExactPrintError
-  | PrepareError EPT.ExactPrintError
+  | UpdateError EPT.EPError
+  | PrepareError EPT.EPError
   | ExpectedIntegerLiteral SrcSpan
   deriving (Show, Eq)
 
@@ -124,10 +124,10 @@ newtype Update focus = Update
 withSelectionError :: Either SelectError a -> Either EditError a
 withSelectionError = mapLeft SelectionError
 
-withUpdateError :: Either EPT.ExactPrintError a -> Either EditError a
+withUpdateError :: Either EPT.EPError a -> Either EditError a
 withUpdateError = mapLeft UpdateError
 
-withPrepareError :: Either EPT.ExactPrintError a -> Either EditError a
+withPrepareError :: Either EPT.EPError a -> Either EditError a
 withPrepareError = mapLeft PrepareError
 
 mapLeft :: (e -> e') -> Either e a -> Either e' a
@@ -166,19 +166,19 @@ modifyLocated f = Update (Right . Raw . f)
 replaceExprText :: Text -> Update Expr
 replaceExprText source =
   Update $ \focused -> do
-    replacement <- withUpdateError $ EPF.parseExpr source
+    replacement <- withUpdateError $ EPP.parseExpr source
     pure (Raw (translateFromTo (getLoc replacement) (getLoc focused) replacement))
 
 replaceBindingText :: Text -> Update Binding
 replaceBindingText source =
   Update $ \focused -> do
-    replacement <- withUpdateError $ EPF.parseBinding source
+    replacement <- withUpdateError $ EPP.parseBinding source
     pure (Raw (translateFromTo (getLoc replacement) (getLoc focused) replacement))
 
 replaceAttrKeyText :: Text -> Update AttrKey
 replaceAttrKeyText source =
   Update $ \focused -> do
-    replacement <- withUpdateError $ EPF.parseAttrKey source
+    replacement <- withUpdateError $ EPP.parseAttrKey source
     pure (Raw (translateFromTo (getLoc replacement) (getLoc focused) replacement))
 
 setIntLiteral :: Integer -> Update Expr
@@ -212,7 +212,7 @@ insertBinding position newBinding =
 insertBindingText :: EPT.BindingInsertPosition -> Text -> Update Expr
 insertBindingText position source =
   Update $ \focused -> do
-    newBinding <- withUpdateError $ EPF.parseBinding source
+    newBinding <- withUpdateError $ EPP.parseBinding source
     runUpdate (insertBinding position newBinding) focused
 
 insertInheritKeyAt :: Int -> LAttrKey -> Update Binding
@@ -229,11 +229,11 @@ insertInheritKeyAt idx newKey =
 insertInheritKeyTextAt :: Int -> Text -> Update Binding
 insertInheritKeyTextAt idx source =
   Update $ \focused -> do
-    newKey <- withUpdateError $ EPF.parseAttrKey source
+    newKey <- withUpdateError $ EPP.parseAttrKey source
     runUpdate (insertInheritKeyAt idx newKey) focused
 
 class EditableRoot root where
-  prepareEditedRoot :: Located root -> Either EPT.ExactPrintError (Located root)
+  prepareEditedRoot :: Located root -> Either EPT.EPError (Located root)
 
 instance EditableRoot Expr where
   prepareEditedRoot (L _ value) = do
@@ -371,7 +371,7 @@ prepareInsertedLetBody ann bindings body
         (newInLine + 1, srcSpanStartColumn span')
         (newInLine + 1, srcSpanStartColumn span' + 1)
 
-normalizeBindingInsertIndex :: EPT.BindingInsertPosition -> Int -> EPT.ExactPrintResult Int
+normalizeBindingInsertIndex :: EPT.BindingInsertPosition -> Int -> EPT.EPResult Int
 normalizeBindingInsertIndex EPT.AppendBinding len = Right len
 normalizeBindingInsertIndex (EPT.InsertBindingAt idx) len
   | idx < 0 = Left (EPT.NegativeIndex idx)

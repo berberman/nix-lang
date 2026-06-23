@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 
 -- | Shared span, cursor, and translation helpers for internal exact-print preparation.
-module Nix.Lang.ExactPrint.Internal.Geometry
+module Nix.Lang.ExactPrint.Internal.Utils
   ( bindingSpan,
     bindingRenderSpan,
     bindingComments,
@@ -37,6 +37,8 @@ import Nix.Lang.Types
 import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
 
+--------------------------------------------------------------------------------
+
 -- | Recover the full render span of a binding.
 --
 -- This prefers token-backed spans when they are available so rebuilt bindings
@@ -70,12 +72,16 @@ bindingComments = \case
   NixNormalBinding ann _ _ -> annComments ann
   NixInheritBinding ann _ _ -> annComments ann
 
+--------------------------------------------------------------------------------
+
 -- | Move a list of comments from one span anchor to another.
 --
 -- Comment spans are translated structurally, preserving their relative offsets
 -- from the owning token or delimiter.
 shiftComments :: SrcSpan -> SrcSpan -> [Located Comment] -> [Located Comment]
 shiftComments oldSpan newSpan = fmap (translateFromTo oldSpan newSpan)
+
+--------------------------------------------------------------------------------
 
 -- | Apply a relative delta to the end of an anchor span.
 --
@@ -95,6 +101,8 @@ applyDeltaToAnchor anchor delta =
         (srcSpanEndLine anchor + line, col + 1)
         (srcSpanEndLine anchor + line, col + 2)
 
+--------------------------------------------------------------------------------
+
 -- | Place a token at a concrete render cursor.
 --
 -- The token width comes from the concrete token text so synthesized spans match
@@ -105,9 +113,7 @@ tokenSpanAt cursor tok =
   where
     fileName = maybe "<edited>" srcSpanFilename (annTokenSrcSpan tok)
 
--- | Update the common annotation span of a node.
-setAnnSpan :: (HasAnnCommon a) => SrcSpan -> a -> a
-setAnnSpan span' ann = setAnnCommon ((getAnnCommon ann) {acPos = AnnSpan span'}) ann
+--------------------------------------------------------------------------------
 
 -- | Preserve the relative gap from an old anchor to an old target at a new anchor.
 --
@@ -130,6 +136,8 @@ preserveGapTargetForSetPat binding var' oldDef =
 -- typically used for tokens whose concrete width is already known.
 preserveGapSpan :: SrcSpan -> SrcSpan -> Located a -> SrcSpan
 preserveGapSpan oldAnchor oldTarget newAnchor = applyDeltaToAnchor (getLoc newAnchor) (deltaFromAnchor oldAnchor oldTarget)
+
+--------------------------------------------------------------------------------
 
 -- | Convert a span start into a render cursor.
 spanStartCursor :: SrcSpan -> RenderCursor
@@ -157,6 +165,8 @@ cursorFallbackFile = "<edited>"
 cursorFile :: Located a -> String
 cursorFile locd = srcSpanFilename (getLoc locd)
 
+--------------------------------------------------------------------------------
+
 -- | Safe @last@ as a 'Maybe'.
 lastMay :: [a] -> Maybe a
 lastMay [] = Nothing
@@ -171,6 +181,8 @@ listSpan xs = foldr1 combineSrcSpans (getLoc <$> xs)
 listSpanOr :: SrcSpan -> [Located a] -> SrcSpan
 listSpanOr fallback [] = fallback
 listSpanOr _ xs = listSpan xs
+
+--------------------------------------------------------------------------------
 
 -- | Translate every span in a tree from one anchor span to another.
 --
@@ -195,6 +207,8 @@ translateFromTo origin target = everywhere (mkT translate)
       ( targetLine + (line - originLine),
         targetColumn + (column - originColumn)
       )
+
+--------------------------------------------------------------------------------
 
 tokenWidth :: AnnToken -> Int
 tokenWidth tok = max 1 . T.length $ fromMaybe " " (showToken (annToken tok))

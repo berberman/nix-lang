@@ -9,6 +9,7 @@ import Nix.Lang.Types.Base (Syn)
 import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
 import Prettyprinter
+import Prettyprinter.Render.Text (renderStrict)
 
 class Outputable a where
   output :: a -> Doc ann
@@ -27,6 +28,9 @@ instance OutputableNames Syn where
   outputVarName _ = pretty
   outputBinderName _ = pretty
   outputAttrName _ = pretty
+
+renderToText :: (Outputable a) => a -> Text
+renderToText = renderStrict . layoutPretty defaultLayoutOptions . output
 
 extErr :: a
 extErr = error "unimplemented for extension"

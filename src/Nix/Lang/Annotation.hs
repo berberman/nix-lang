@@ -7,6 +7,8 @@ import Data.Data (Data)
 import Data.Text (Text)
 import Nix.Lang.Span
 
+--------------------------------------------------------------------------------
+
 data Ann
   = -- | @assert@
     AnnAssert
@@ -108,6 +110,8 @@ data Ann
     AnnEof
   deriving (Show, Eq, Enum, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Source comment as parsed from the input stream.
 data Comment
   = BlockComment Text
@@ -130,6 +134,8 @@ data NodeComments = NodeComments
 emptyComments :: NodeComments
 emptyComments = NodeComments [] []
 
+--------------------------------------------------------------------------------
+
 -- | Relative position used by exact-print-aware annotations.
 --
 -- 'DeltaPos' is the compact form used once a token or node no longer needs to
@@ -150,6 +156,8 @@ data AnnPos
   = AnnSpan SrcSpan
   | AnnDelta DeltaPos
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 -- | Exact-print metadata for a single concrete syntax token.
 data AnnToken = AnnToken
@@ -178,6 +186,11 @@ annTokenDelta :: AnnToken -> Maybe DeltaPos
 annTokenDelta AnnToken {annTokenPos = AnnDelta delta} = Just delta
 annTokenDelta _ = Nothing
 
+setAnnTokenDelta :: DeltaPos -> AnnToken -> AnnToken
+setAnnTokenDelta delta tok = tok {annTokenPos = AnnDelta delta}
+
+--------------------------------------------------------------------------------
+
 -- | Shared payload reused across many node-local annotation records.
 data AnnCommon = AnnCommon
   { acComments :: NodeComments,
@@ -203,6 +216,11 @@ annSrcSpan ann = case annPos ann of
   AnnSpan l -> Just l
   AnnDelta _ -> Nothing
 
+setAnnSpan :: (HasAnnCommon a) => SrcSpan -> a -> a
+setAnnSpan span' ann = setAnnCommon ((getAnnCommon ann) {acPos = AnnSpan span'}) ann
+
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for sets and recursive sets.
 data AnnSet = AnnSet
   { asCommon :: AnnCommon,
@@ -212,6 +230,8 @@ data AnnSet = AnnSet
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for @let ... in ...@.
 data AnnLetNode = AnnLetNode
   { alCommon :: AnnCommon,
@@ -219,6 +239,8 @@ data AnnLetNode = AnnLetNode
     alIn :: AnnToken
   }
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 -- | Annotation payload for @if ... then ... else ...@.
 data AnnIfNode = AnnIfNode
@@ -229,6 +251,8 @@ data AnnIfNode = AnnIfNode
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for @with ...; ...@.
 data AnnWithNode = AnnWithNode
   { awCommon :: AnnCommon,
@@ -236,6 +260,8 @@ data AnnWithNode = AnnWithNode
     awSemicolon :: AnnToken
   }
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 -- | Annotation payload for @assert ...; ...@.
 data AnnAssertNode = AnnAssertNode
@@ -245,6 +271,8 @@ data AnnAssertNode = AnnAssertNode
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for selection expressions, including optional @or@.
 data AnnSelect = AnnSelect
   { aslCommon :: AnnCommon,
@@ -252,12 +280,16 @@ data AnnSelect = AnnSelect
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for @a ? b@.
 data AnnHasAttr = AnnHasAttr
   { ahaCommon :: AnnCommon,
     ahaQuestion :: AnnToken
   }
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 -- | Annotation payload for normal bindings like @x = e;@.
 data AnnNormalBinding = AnnNormalBinding
@@ -274,6 +306,8 @@ data AnnInheritBinding = AnnInheritBinding
     aibSemicolon :: AnnToken
   }
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 -- | Annotation payload for variable patterns like @x:@.
 data AnnVarPat = AnnVarPat
@@ -304,12 +338,16 @@ data AnnSetPatBinding = AnnSetPatBinding
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for dotted attribute paths.
 data AnnAttrPath = AnnAttrPath
   { aapCommon :: AnnCommon,
     aapDots :: [AnnToken]
   }
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 -- | Annotation payload for parenthesized expressions.
 data AnnParNode = AnnParNode
@@ -319,6 +357,8 @@ data AnnParNode = AnnParNode
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for list expressions.
 data AnnListNode = AnnListNode
   { alnCommon :: AnnCommon,
@@ -326,6 +366,8 @@ data AnnListNode = AnnListNode
     alnCloseS :: AnnToken
   }
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 -- | Annotation payload for environment paths like @<nixpkgs>@.
 data AnnEnvPathNode = AnnEnvPathNode
@@ -335,30 +377,40 @@ data AnnEnvPathNode = AnnEnvPathNode
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for string wrapper nodes.
-data AnnStringNode = AnnStringNode
+newtype AnnStringNode = AnnStringNode
   { astrCommon :: AnnCommon
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for path wrapper nodes.
-data AnnPathNode = AnnPathNode
+newtype AnnPathNode = AnnPathNode
   { apathCommon :: AnnCommon
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for lambda wrapper nodes.
 data AnnLamNode = AnnLamNode
-  { alamCommon :: AnnCommon
-  , alamColon :: AnnToken
+  { alamCommon :: AnnCommon,
+    alamColon :: AnnToken
   }
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 -- | Annotation payload for application wrapper nodes.
 data AnnAppNode = AnnAppNode
   { aappCommon :: AnnCommon
   }
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 -- | Annotation payload for binary operator applications.
 data AnnBinAppNode = AnnBinAppNode
@@ -367,12 +419,16 @@ data AnnBinAppNode = AnnBinAppNode
   }
   deriving (Show, Eq, Data)
 
+--------------------------------------------------------------------------------
+
 -- | Annotation payload for prefix operator applications.
 data AnnPrefixNode = AnnPrefixNode
   { apfxCommon :: AnnCommon,
     apfxToken :: AnnToken
   }
   deriving (Show, Eq, Data)
+
+--------------------------------------------------------------------------------
 
 instance HasAnnCommon AnnCommon where
   getAnnCommon = id

@@ -1,5 +1,5 @@
--- | Parse standalone AST fragments for internal exact-print preparation.
-module Nix.Lang.ExactPrint.Internal.Fragment
+-- | Run parser on standalone AST fragments for internal exact-print preparation.
+module Nix.Lang.ExactPrint.Internal.Parse
   ( parseExpr,
     parseBinding,
     parseAttrKey,
@@ -15,7 +15,7 @@ import Nix.Lang.Types.Parsed
 import Text.Megaparsec (eof, errorBundlePretty)
 
 -- | Parse a standalone expression fragment.
-parseExpr :: Text -> ExactPrintResult LExpr
+parseExpr :: Text -> EPResult LExpr
 parseExpr = parseFragment "<expr>" locatedExprParser ParseExprError
   where
     locatedExprParser = do
@@ -23,7 +23,7 @@ parseExpr = parseFragment "<expr>" locatedExprParser ParseExprError
       pure (L l expr)
 
 -- | Parse a standalone binding fragment.
-parseBinding :: Text -> ExactPrintResult LBinding
+parseBinding :: Text -> EPResult LBinding
 parseBinding = parseFragment "<binding>" locatedBindingParser ParseBindingError
   where
     locatedBindingParser = do
@@ -31,15 +31,15 @@ parseBinding = parseFragment "<binding>" locatedBindingParser ParseBindingError
       pure (L l binding)
 
 -- | Parse a standalone attribute-key fragment.
-parseAttrKey :: Text -> ExactPrintResult LAttrKey
+parseAttrKey :: Text -> EPResult LAttrKey
 parseAttrKey = parseFragment "<attr-key>" locatedKeyParser ParseAttrKeyError
   where
     locatedKeyParser = do
       L l key <- located attrKey
       pure (L l key)
 
--- | Parse a fragment and convert parser failures into 'ExactPrintError'.
-parseFragment :: String -> Parser a -> (Text -> ExactPrintError) -> Text -> ExactPrintResult a
+-- | Parse a fragment and convert parser failures into 'EPError'.
+parseFragment :: String -> Parser a -> (Text -> EPError) -> Text -> EPResult a
 parseFragment label parser mkErr src =
   case runNixParser (parser <* eof) label src of
     (Right value, _) -> Right value

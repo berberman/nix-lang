@@ -4,12 +4,11 @@
 
 module Nix.Lang.ExactPrint
   ( ExactPrint,
-    ExactPrintError (..),
+    EPError (..),
     exactPrint,
     renderExactText,
     renderExactTextM,
     renderExactDoc,
-    renderDoc,
   )
 where
 
@@ -20,17 +19,16 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.Annotation
 import Nix.Lang.ExactPrint.Operations
-import Nix.Lang.Outputable (output)
+import Nix.Lang.Outputable (renderToText)
 import Nix.Lang.Span
 import Nix.Lang.Types
 import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
-import Prettyprinter (Doc, defaultLayoutOptions, layoutPretty, pretty)
-import Prettyprinter.Render.Text (renderStrict)
+import Prettyprinter (Doc, pretty)
 
 --------------------------------------------------------------------------------
 
-data ExactPrintError
+data EPError
   = MissingTokenSpan Text AnnToken
   | EmptyAttrPath
   | MismatchedAttrPathDots Int Int
@@ -40,20 +38,20 @@ data ExactPrintError
 
 -- | The printer accumulates exact output as concrete text chunks and tracks the
 -- current logical cursor used to interpret relative gaps and token deltas.
-data ExactPrinterState = ExactPrinterState
-  { epsChunks :: [Text],
-    epsCursor :: Maybe RenderCursor
+data EPState = EPState
+  { epsChunks :: ![Text],
+    epsCursor :: !(Maybe RenderCursor)
   }
 
-newtype ExactM a = ExactM
-  { runExactM :: StateT ExactPrinterState (Except ExactPrintError) a
+newtype EPM a = EPM
+  { runExactM :: StateT EPState (Except EPError) a
   }
-  deriving newtype (Functor, Applicative, Monad, MonadError ExactPrintError, MonadState ExactPrinterState)
+  deriving newtype (Functor, Applicative, Monad, MonadError EPError, MonadState EPState)
 
 --------------------------------------------------------------------------------
 
 class ExactPrint a where
-  exactPrintM :: a -> ExactM ()
+  exactPrintM :: a -> EPM ()
 
 --------------------------------------------------------------------------------
 
@@ -63,44 +61,41 @@ exactPrint = either (error . show) pretty . renderExactTextM
 renderExactText :: (ExactPrint a) => a -> Text
 renderExactText = either (error . show) id . renderExactTextM
 
-renderExactTextM :: (ExactPrint a) => a -> Either ExactPrintError Text
+renderExactTextM :: (ExactPrint a) => a -> Either EPError Text
 renderExactTextM x = finishPrinterState . snd <$> runExactPrinter (exactPrintM x)
 
-renderExactDoc :: (ExactPrint a) => a -> Either ExactPrintError (Doc ann)
+renderExactDoc :: (ExactPrint a) => a -> Either EPError (Doc ann)
 renderExactDoc = fmap pretty . renderExactTextM
 
-renderDoc :: Doc ann -> Text
-renderDoc = renderStrict . layoutPretty defaultLayoutOptions
+emptyPrinterState :: EPState
+emptyPrinterState = EPState [] Nothing
 
-emptyPrinterState :: ExactPrinterState
-emptyPrinterState = ExactPrinterState [] Nothing
-
-runExactPrinter :: ExactM a -> Either ExactPrintError (a, ExactPrinterState)
+runExactPrinter :: EPM a -> Either EPError (a, EPState)
 runExactPrinter action = runExcept (runStateT (runExactM action) emptyPrinterState)
 
-finishPrinterState :: ExactPrinterState -> Text
+finishPrinterState :: EPState -> Text
 finishPrinterState = T.concat . reverse . epsChunks
 
-exactPrintLocated :: (ExactPrint a) => Located a -> ExactM ()
+exactPrintLocated :: (ExactPrint a) => Located a -> EPM ()
 exactPrintLocated = exactPrintM . unLoc
 
 --------------------------------------------------------------------------------
 
 -- | Emit a raw text fragment into the printer state.
-emitText :: Text -> ExactM ()
+emitText :: Text -> EPM ()
 emitText txt =
-  modify' $ \st@ExactPrinterState {epsChunks, epsCursor} ->
+  modify' $ \st@EPState {epsChunks, epsCursor} ->
     st
       { epsChunks = txt : epsChunks,
         epsCursor = fmap (`advanceCursor` txt) epsCursor
       }
 
-setCursor :: RenderCursor -> ExactM ()
+setCursor :: RenderCursor -> EPM ()
 setCursor cursor = modify' $ \st -> st {epsCursor = Just cursor}
 
 -- | Ensure the printer has a current cursor, initializing it when rendering is
 -- starting from an otherwise anchor-free context.
-ensureCursor :: RenderCursor -> ExactM RenderCursor
+ensureCursor :: RenderCursor -> EPM RenderCursor
 ensureCursor fallback = do
   mCursor <- gets epsCursor
   case mCursor of
@@ -109,7 +104,7 @@ ensureCursor fallback = do
 
 -- | Move the output cursor to the start of a target span by emitting the exact
 -- gap implied by the current cursor and that span.
-emitGapToSpan :: SrcSpan -> ExactM ()
+emitGapToSpan :: SrcSpan -> EPM ()
 emitGapToSpan span' = do
   mCursor <- gets epsCursor
   case mCursor of
@@ -117,30 +112,30 @@ emitGapToSpan span' = do
     Just cursor -> emitText (renderGapFromCursorToSpanText cursor span')
 
 -- | Emit text whose first character is anchored at a particular span start.
-emitAtSpan :: SrcSpan -> Text -> ExactM ()
+emitAtSpan :: SrcSpan -> Text -> EPM ()
 emitAtSpan span' txt = emitGapToSpan span' >> emitText txt
 
-emitDelta :: DeltaPos -> ExactM ()
+emitDelta :: DeltaPos -> EPM ()
 emitDelta delta = do
   _ <- ensureCursor (RenderCursor 1 1)
   emitText (renderGapFromDeltaText delta)
 
 -- | Recover the emitted surface text for a token from its annotation identity.
-tokenTextM :: Text -> AnnToken -> ExactM Text
+tokenTextM :: Text -> AnnToken -> EPM Text
 tokenTextM label tok =
   case showToken (annToken tok) of
     Just txt -> pure txt
     Nothing -> throwError $ MissingTokenSpan (label <> ": token text unavailable") tok
 
 -- | Emit a token using the canonical text associated with its annotation.
-emitToken :: Text -> AnnToken -> ExactM ()
+emitToken :: Text -> AnnToken -> EPM ()
 emitToken label tok = do
   txt <- tokenTextM label tok
-  emitTokenText label tok txt
+  emitTokenText tok txt
 
 -- | Emit a token using explicit text supplied by the caller.
-emitTokenText :: Text -> AnnToken -> Text -> ExactM ()
-emitTokenText _ tok txt = do
+emitTokenText :: AnnToken -> Text -> EPM ()
+emitTokenText tok txt = do
   case annTokenPos tok of
     AnnSpan src -> emitGapToSpan src
     AnnDelta delta -> emitDelta delta
@@ -148,22 +143,22 @@ emitTokenText _ tok txt = do
 
 --------------------------------------------------------------------------------
 
-emitCommentAt :: Located Comment -> ExactM ()
+emitCommentAt :: Located Comment -> EPM ()
 emitCommentAt (L span' comment) = emitAtSpan span' (renderCommentText comment)
 
-emitComments :: [Located Comment] -> ExactM ()
+emitComments :: [Located Comment] -> EPM ()
 emitComments = mapM_ emitCommentAt
 
-emitPriorCommentsTo :: SrcSpan -> [Located Comment] -> ExactM ()
+emitPriorCommentsTo :: SrcSpan -> [Located Comment] -> EPM ()
 emitPriorCommentsTo target comments = do
   emitComments comments
   unless (null comments) (emitGapToSpan target)
 
-emitFollowingComments :: [Located Comment] -> ExactM ()
+emitFollowingComments :: [Located Comment] -> EPM ()
 emitFollowingComments = emitComments
 
 -- | Emit a node together with the comments it owns.
-emitWrappedNode :: (HasAnnCommon a) => SrcSpan -> a -> ExactM () -> ExactM ()
+emitWrappedNode :: (HasAnnCommon a) => SrcSpan -> a -> EPM () -> EPM ()
 emitWrappedNode target ann body = do
   let comments = annComments ann
   emitPriorCommentsTo target (priorComments comments)
@@ -266,9 +261,9 @@ renderQuotedPartText = \case
   NixStringInterpol _ expr -> renderInterpolatedExprText expr
 
 renderInterpolatedExprText :: LExpr -> Text
-renderInterpolatedExprText expr = "${" <> renderDoc (output (unLoc expr)) <> "}"
+renderInterpolatedExprText expr = "${" <> renderToText (unLoc expr) <> "}"
 
-renderSetPatAsM :: SetPatAs -> ExactM ()
+renderSetPatAsM :: SetPatAs -> EPM ()
 renderSetPatAsM NixSetPatAs {..} =
   emitWrappedNode (setPatAsRenderSpan nspaAnn nspaVar nspaLocation) nspaAnn $ case nspaLocation of
     NixSetPatAsLeading -> do
@@ -289,7 +284,7 @@ instance ExactPrint SetPatBinding where
 
 --------------------------------------------------------------------------------
 
-renderListM :: AnnListNode -> [LExpr] -> ExactM ()
+renderListM :: AnnListNode -> [LExpr] -> EPM ()
 renderListM ann xs = do
   let comments = annComments ann
   emitPriorCommentsTo (expectTokenSpan "list open bracket" (alnOpenS ann)) (priorComments comments)
@@ -300,7 +295,7 @@ renderListM ann xs = do
 
 --------------------------------------------------------------------------------
 
-renderSetM :: AnnSet -> Bool -> [LBinding] -> ExactM ()
+renderSetM :: AnnSet -> Bool -> [LBinding] -> EPM ()
 renderSetM ann _ bindings = do
   let comments = annComments ann
       openAnchor = maybe (expectTokenSpan "set open brace" (asOpenC ann)) (expectTokenSpan "rec keyword") (asRec ann)
@@ -315,7 +310,7 @@ renderSetM ann _ bindings = do
 
 --------------------------------------------------------------------------------
 
-renderEnvPathM :: AnnEnvPathNode -> Located Text -> ExactM ()
+renderEnvPathM :: AnnEnvPathNode -> Located Text -> EPM ()
 renderEnvPathM ann path = do
   let comments = annComments ann
   emitPriorCommentsTo (expectTokenSpan "env path open" (aenvOpen ann)) (priorComments comments)
@@ -326,7 +321,7 @@ renderEnvPathM ann path = do
 
 --------------------------------------------------------------------------------
 
-renderLamM :: AnnLamNode -> FuncPat -> Expr -> ExactM ()
+renderLamM :: AnnLamNode -> FuncPat -> Expr -> EPM ()
 renderLamM ann pat body = do
   let comments = annComments ann
   emitPriorCommentsTo (funcPatRenderSpan pat) (priorComments comments)
@@ -337,28 +332,28 @@ renderLamM ann pat body = do
 
 --------------------------------------------------------------------------------
 
-renderBinAppM :: AnnBinAppNode -> BinaryOp -> Expr -> Expr -> ExactM ()
+renderBinAppM :: AnnBinAppNode -> BinaryOp -> Expr -> Expr -> EPM ()
 renderBinAppM ann op lhs rhs = do
   let comments = annComments ann
   emitPriorCommentsTo (exprSpan lhs) (priorComments comments)
   exactPrintM lhs
-  emitTokenText "binary operator" (abinOperator ann) (showBinOP op)
+  emitTokenText (abinOperator ann) (showBinOP op)
   exactPrintM rhs
   emitFollowingComments (followingComments comments)
 
 --------------------------------------------------------------------------------
 
-renderPrefixAppM :: AnnPrefixNode -> Text -> Expr -> ExactM ()
+renderPrefixAppM :: AnnPrefixNode -> Text -> Expr -> EPM ()
 renderPrefixAppM ann tok expr = do
   let comments = annComments ann
   emitPriorCommentsTo (expectTokenSpan "prefix operator" (apfxToken ann)) (priorComments comments)
-  emitTokenText "prefix operator" (apfxToken ann) tok
+  emitTokenText (apfxToken ann) tok
   exactPrintM expr
   emitFollowingComments (followingComments comments)
 
 --------------------------------------------------------------------------------
 
-renderAttrPathM :: AnnAttrPath -> [LAttrKey] -> ExactM ()
+renderAttrPathM :: AnnAttrPath -> [LAttrKey] -> EPM ()
 renderAttrPathM ann keys =
   case keys of
     [] -> throwError EmptyAttrPath
@@ -384,7 +379,7 @@ renderAttrPathM ann keys =
 
 --------------------------------------------------------------------------------
 
-renderNormalBindingM :: AnnNormalBinding -> AttrPath -> Expr -> ExactM ()
+renderNormalBindingM :: AnnNormalBinding -> AttrPath -> Expr -> EPM ()
 renderNormalBindingM ann path expr = do
   let comments = annComments ann
   emitPriorCommentsTo (attrPathRenderSpan path) (priorComments comments)
@@ -394,7 +389,7 @@ renderNormalBindingM ann path expr = do
   emitToken "binding semicolon" (anbSemicolon ann)
   emitFollowingComments (followingComments comments)
 
-renderInheritBindingM :: AnnInheritBinding -> Maybe LExpr -> [LAttrKey] -> ExactM ()
+renderInheritBindingM :: AnnInheritBinding -> Maybe LExpr -> [LAttrKey] -> EPM ()
 renderInheritBindingM ann mScope names = do
   let comments = annComments ann
       inheritSpan = expectTokenSpan "inherit keyword" (aibInherit ann)
@@ -409,7 +404,7 @@ renderInheritBindingM ann mScope names = do
 
 --------------------------------------------------------------------------------
 
-renderParM :: AnnParNode -> Expr -> ExactM ()
+renderParM :: AnnParNode -> Expr -> EPM ()
 renderParM ann expr = do
   let comments = annComments ann
   emitPriorCommentsTo (expectTokenSpan "paren open" (apnOpenP ann)) (priorComments comments)
@@ -420,7 +415,7 @@ renderParM ann expr = do
 
 --------------------------------------------------------------------------------
 
-renderLetM :: AnnLetNode -> [LBinding] -> Expr -> ExactM ()
+renderLetM :: AnnLetNode -> [LBinding] -> Expr -> EPM ()
 renderLetM ann bindings expr = do
   let comments = annComments ann
       letSpan = expectTokenSpan "let keyword" (alLet ann)
@@ -433,7 +428,7 @@ renderLetM ann bindings expr = do
 
 --------------------------------------------------------------------------------
 
-renderIfM :: AnnIfNode -> Expr -> Expr -> Expr -> ExactM ()
+renderIfM :: AnnIfNode -> Expr -> Expr -> Expr -> EPM ()
 renderIfM ann cond thenExpr elseExpr = do
   let comments = annComments ann
       ifSpan = expectTokenSpan "if keyword" (aifIf ann)
@@ -448,7 +443,7 @@ renderIfM ann cond thenExpr elseExpr = do
 
 --------------------------------------------------------------------------------
 
-renderWithM :: AnnWithNode -> Expr -> Expr -> ExactM ()
+renderWithM :: AnnWithNode -> Expr -> Expr -> EPM ()
 renderWithM ann scope expr = do
   let comments = annComments ann
       withSpan = expectTokenSpan "with keyword" (awWith ann)
@@ -461,7 +456,7 @@ renderWithM ann scope expr = do
 
 --------------------------------------------------------------------------------
 
-renderAssertM :: AnnAssertNode -> Expr -> Expr -> ExactM ()
+renderAssertM :: AnnAssertNode -> Expr -> Expr -> EPM ()
 renderAssertM ann assertion expr = do
   let comments = annComments ann
       assertSpan = expectTokenSpan "assert keyword" (aaAssert ann)
@@ -474,7 +469,7 @@ renderAssertM ann assertion expr = do
 
 --------------------------------------------------------------------------------
 
-renderHasAttrM :: AnnHasAttr -> Expr -> AttrPath -> ExactM ()
+renderHasAttrM :: AnnHasAttr -> Expr -> AttrPath -> EPM ()
 renderHasAttrM ann expr path = do
   let comments = annComments ann
   emitPriorCommentsTo (exprSpan expr) (priorComments comments)
@@ -485,7 +480,7 @@ renderHasAttrM ann expr path = do
 
 --------------------------------------------------------------------------------
 
-renderSelectM :: AnnSelect -> Expr -> AttrPath -> Maybe LExpr -> ExactM ()
+renderSelectM :: AnnSelect -> Expr -> AttrPath -> Maybe LExpr -> EPM ()
 renderSelectM ann expr path def = do
   let comments = annComments ann
   emitPriorCommentsTo (exprSpan expr) (priorComments comments)
@@ -494,13 +489,14 @@ renderSelectM ann expr path def = do
   case def of
     Nothing -> pure ()
     Just defExpr -> case aslOr ann of
-      Just orTok -> emitTokenText "select or" orTok "or" >> exactPrintLocated defExpr
+      Just orTok -> emitTokenText orTok "or" >> exactPrintLocated defExpr
+      -- fall back to plain text
       Nothing -> emitText " or " >> exactPrintLocated defExpr
   emitFollowingComments (followingComments comments)
 
 --------------------------------------------------------------------------------
 
-renderSetPatM :: AnnSetPatNode -> NixSetPatEllipses -> Maybe LSetPatAs -> [LSetPatBinding] -> ExactM ()
+renderSetPatM :: AnnSetPatNode -> NixSetPatEllipses -> Maybe LSetPatAs -> [LSetPatBinding] -> EPM ()
 renderSetPatM ann ellipses mAs params = do
   case mAs of
     Just (L _ asPat@NixSetPatAs {nspaLocation = NixSetPatAsLeading}) -> exactPrintM asPat
@@ -512,7 +508,7 @@ renderSetPatM ann ellipses mAs params = do
     Just (L _ asPat@NixSetPatAs {nspaLocation = NixSetPatAsTrailing}) -> exactPrintM asPat
     _ -> pure ()
 
-renderSetPatEntriesM :: [LSetPatBinding] -> [AnnToken] -> NixSetPatEllipses -> Maybe AnnToken -> ExactM ()
+renderSetPatEntriesM :: [LSetPatBinding] -> [AnnToken] -> NixSetPatEllipses -> Maybe AnnToken -> EPM ()
 renderSetPatEntriesM params commas ellipses ellipsisTok = do
   let (separatorCommas, trailingComma) = splitAt (max 0 (length params - 1)) commas
   renderBindings params separatorCommas

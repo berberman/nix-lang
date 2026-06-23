@@ -143,3 +143,27 @@ type LFuncPat = LNixFuncPat Ps
 type Lit = NixLit Ps
 
 type LLit = LNixLit Ps
+
+type SetPatBinding = NixSetPatBinding Ps
+
+type LSetPatBinding = Located SetPatBinding
+
+type SetPatAs = NixSetPatAs Ps
+
+type LSetPatAs = Located SetPatAs
+
+type BinderName = NixBinderName Ps
+
+type LBinderName = Located BinderName
+
+type VarName = NixVarName Ps
+
+type LVarName = Located VarName
+
+type Path = NixPath Ps
+
+type LPath = Located Path
+
+type NString = NixString Ps
+
+type LNString = Located NString

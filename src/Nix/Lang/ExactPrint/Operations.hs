@@ -12,16 +12,6 @@ module Nix.Lang.ExactPrint.Operations
     cursorAtSpanStart,
     cursorAtTokenStart,
     advanceCursor,
-    renderGap,
-    renderGapExact,
-    renderGapText,
-    renderGapFromOpen,
-    renderGapFromOpenText,
-    renderGapFromAnchor,
-    renderGapFromAnchorText,
-    renderGapToClose,
-    renderGapToCloseText,
-    renderGapFromDelta,
     renderGapFromDeltaText,
     renderGapFromCursorToSpan,
     renderGapFromCursorToSpanText,
@@ -46,24 +36,7 @@ module Nix.Lang.ExactPrint.Operations
     prepareAssertLayout,
     prepareHasAttrLayout,
     prepareSelectLayout,
-    mapTokenToDelta,
     deltaFromAnchor,
-
-    -- * Type alias
-    SetPatBinding,
-    LSetPatBinding,
-    SetPatAs,
-    LSetPatAs,
-    BinderName,
-    LBinderName,
-    VarName,
-    LVarName,
-    Lit,
-    LLit,
-    Path,
-    LPath,
-    NString,
-    LNString,
   )
 where
 
@@ -80,118 +53,12 @@ import Prettyprinter (Doc, pretty)
 
 --------------------------------------------------------------------------------
 
-type SetPatBinding = NixSetPatBinding Ps
-
-type LSetPatBinding = Located SetPatBinding
-
-type SetPatAs = NixSetPatAs Ps
-
-type LSetPatAs = Located SetPatAs
-
-type BinderName = NixBinderName Ps
-
-type LBinderName = Located BinderName
-
-type VarName = NixVarName Ps
-
-type LVarName = Located VarName
-
-type Path = NixPath Ps
-
-type LPath = Located Path
-
-type NString = NixString Ps
-
-type LNString = Located NString
-
---------------------------------------------------------------------------------
-
 -- | Logical cursor used by exact-layout operations.
 data RenderCursor = RenderCursor
   { rcLine :: !Int,
     rcColumn :: !Int
   }
   deriving (Show, Eq)
-
---------------------------------------------------------------------------------
-
--- | Render the gap between two spans, forcing at least one separating column on the same line.
-renderGap :: SrcSpan -> SrcSpan -> Doc ann
-renderGap prev next = pretty (renderGapText True prev next)
-
--- | Render the exact gap between two spans without forcing extra separation.
-renderGapExact :: SrcSpan -> SrcSpan -> Doc ann
-renderGapExact prev next = pretty (renderGapText False prev next)
-
--- | Compute the textual gap between two spans.
---
--- This is the core whitespace-reconstruction routine used by exact printing.
--- On the same line it emits spaces; across lines it emits the minimum number of
--- newlines plus indentation required to place @next@ at its recorded start.
-renderGapText :: Bool -> SrcSpan -> SrcSpan -> Text
-renderGapText forceOne prev next
-  | srcSpanFilename prev /= srcSpanFilename next = " "
-  | srcSpanEndLine prev == srcSpanStartLine next =
-      T.replicate (max minCols (srcSpanStartColumn next - srcSpanEndColumn prev)) " "
-  | otherwise =
-      T.replicate (max 1 (srcSpanStartLine next - srcSpanEndLine prev)) "\n"
-        <> T.replicate (max 0 (srcSpanStartColumn next - 1)) " "
-  where
-    minCols = if forceOne then 1 else 0
-
--- | Render the gap from an opening delimiter to the next span.
-renderGapFromOpen :: SrcSpan -> SrcSpan -> Doc ann
-renderGapFromOpen openSpan next = pretty $ renderGapFromOpenText openSpan next
-
--- | Compute the textual gap from an opening delimiter to the next span.
---
--- Unlike 'renderGapText', this measures from the delimiter's start column
--- rather than its end, which matches how some annotated open tokens are stored.
-renderGapFromOpenText :: SrcSpan -> SrcSpan -> Text
-renderGapFromOpenText openSpan next
-  | srcSpanFilename openSpan /= srcSpanFilename next = " "
-  | srcSpanStartLine openSpan == srcSpanStartLine next =
-      T.replicate (max 0 (srcSpanStartColumn next - srcSpanStartColumn openSpan - 1)) " "
-  | otherwise =
-      T.replicate (max 1 (srcSpanStartLine next - srcSpanStartLine openSpan)) "\n"
-        <> T.replicate (max 0 (srcSpanStartColumn next - 1)) " "
-
--- | Render the gap from an anchor span to the next span.
-renderGapFromAnchor :: SrcSpan -> SrcSpan -> Doc ann
-renderGapFromAnchor anchor next = pretty $ renderGapFromAnchorText anchor next
-
--- | Compute the textual gap from an anchor span to the next span.
---
--- The anchor's own width matters here, so same-line spacing is computed from the
--- end of the anchored token or node rather than just its start column.
-renderGapFromAnchorText :: SrcSpan -> SrcSpan -> Text
-renderGapFromAnchorText anchor next
-  | srcSpanFilename anchor /= srcSpanFilename next = " "
-  | srcSpanStartLine anchor == srcSpanStartLine next =
-      T.replicate (max 0 (srcSpanStartColumn next - srcSpanStartColumn anchor - anchorWidth anchor)) " "
-  | otherwise =
-      T.replicate (max 1 (srcSpanStartLine next - srcSpanStartLine anchor)) "\n"
-        <> T.replicate (max 0 (srcSpanStartColumn next - 1)) " "
-
--- | Render the gap from a previous span to a closing delimiter.
-renderGapToClose :: SrcSpan -> SrcSpan -> Doc ann
-renderGapToClose prev close = pretty $ renderGapToCloseText prev close
-
--- | Compute the textual gap before a closing delimiter.
---
--- Same-line closing delimiters contribute no gap; multiline closers preserve the
--- recorded line break and indentation of the close token.
-renderGapToCloseText :: SrcSpan -> SrcSpan -> Text
-renderGapToCloseText prev close
-  | srcSpanFilename prev /= srcSpanFilename close = ""
-  | srcSpanEndLine prev == srcSpanStartLine close = ""
-  | otherwise =
-      T.replicate (max 1 (srcSpanStartLine close - srcSpanEndLine prev)) "\n"
-        <> T.replicate (max 0 (srcSpanStartColumn close - 1)) " "
-
--- | Render whitespace described by a relative delta.
-renderGapFromDelta :: DeltaPos -> Doc ann
-renderGapFromDelta = pretty . renderGapFromDeltaText
 
 --------------------------------------------------------------------------------
 
@@ -204,10 +71,6 @@ cursorAtTokenStart :: SrcSpan -> RenderCursor
 cursorAtTokenStart = cursorAtSpanStart
 
 -- | Advance a render cursor through concrete output text.
---
--- This is the fundamental cursor simulation primitive used by rebuild and exact
--- print logic. It walks the rendered text one character at a time so line and
--- column stay consistent with the eventual output.
 advanceCursor :: RenderCursor -> Text -> RenderCursor
 advanceCursor cursor txt = foldl step cursor (T.unpack txt)
   where
@@ -230,15 +93,6 @@ renderGapFromDeltaText :: DeltaPos -> Text
 renderGapFromDeltaText DeltaPos {..}
   | deltaLine <= 0 = T.replicate deltaColumn " "
   | otherwise = T.replicate deltaLine "\n" <> T.replicate deltaColumn " "
-
--- | Width of an anchor span for same-line gap calculations.
---
--- Multi-line anchors are treated as width 1 because only the final line/column
--- relationship matters when reconstructing same-line spacing after them.
-anchorWidth :: SrcSpan -> Int
-anchorWidth anchorSpan
-  | srcSpanStartLine anchorSpan == srcSpanEndLine anchorSpan = max 1 (srcSpanEndColumn anchorSpan - srcSpanStartColumn anchorSpan)
-  | otherwise = 1
 
 --------------------------------------------------------------------------------
 
@@ -308,8 +162,6 @@ fallbackExprSpan maybeAnnSpan childSpans =
     Just span' -> span'
     Nothing -> foldr1 combineSrcSpans childSpans
 
---------------------------------------------------------------------------------
-
 -- | Recover the concrete body span of a function pattern.
 funcPatBodySpan :: FuncPat -> SrcSpan
 funcPatBodySpan = \case
@@ -318,8 +170,6 @@ funcPatBodySpan = \case
     let base = expectTokenSpan "set pattern open" (aspOpenC ann) `combineSrcSpans` expectTokenSpan "set pattern close" (aspCloseC ann)
         withAs = maybe base (combineSrcSpans base . getLoc) mAs
      in foldr (combineSrcSpans . getLoc) withAs bindings
-
---------------------------------------------------------------------------------
 
 -- | Extend 'funcPatBodySpan' to include leading comments owned by the pattern.
 funcPatRenderSpan :: FuncPat -> SrcSpan
@@ -330,8 +180,6 @@ funcPatComments :: FuncPat -> NodeComments
 funcPatComments = \case
   NixVarPat ann _ -> annComments ann
   NixSetPat ann _ _ _ -> annComments ann
-
---------------------------------------------------------------------------------
 
 -- | Extend 'attrPathSpan' to include leading comments owned by the path.
 attrPathRenderSpan :: AttrPath -> SrcSpan
@@ -354,6 +202,13 @@ attrPathSpan (NixAttrPath ann keys) =
       key : _ -> getLoc key
       [] -> error "attrPathSpan: empty attribute path"
 
+-- | Recover the render span of a set-pattern @as@ binding.
+setPatAsRenderSpan :: AnnSetPatAs -> LBinderName -> NixSetPatAsLocation -> SrcSpan
+setPatAsRenderSpan ann var loc =
+  case loc of
+    NixSetPatAsLeading -> getLoc var `combineSrcSpans` aspaAtSpan ann (getLoc var)
+    NixSetPatAsTrailing -> aspaAtSpan ann (getLoc var) `combineSrcSpans` getLoc var
+
 --------------------------------------------------------------------------------
 
 -- | Read a token span or fail loudly when an invariant is broken.
@@ -369,31 +224,18 @@ aspaAtSpan ann anchor = fromMaybe anchor (annTokenSrcSpan (aspaAt ann))
 
 --------------------------------------------------------------------------------
 
--- | Recover the render span of a set-pattern @as@ binding.
-setPatAsRenderSpan :: AnnSetPatAs -> LBinderName -> NixSetPatAsLocation -> SrcSpan
-setPatAsRenderSpan ann var loc =
-  case loc of
-    NixSetPatAsLeading -> getLoc var `combineSrcSpans` aspaAtSpan ann (getLoc var)
-    NixSetPatAsTrailing -> aspaAtSpan ann (getLoc var) `combineSrcSpans` getLoc var
-
---------------------------------------------------------------------------------
-
 -- | Retag the close token of a list after its elements have been repaired.
 prepareListLayout :: AnnListNode -> [LExpr] -> AnnListNode
 prepareListLayout ann xs = ann {alnCloseS = closeToken}
   where
+    -- if the lisst is empty, anchor ] to [
+    -- otherwise anchor ] to the last element
     closeToken = rewriteToken (alnCloseS ann) closeDelta
     closeDelta closeSpan = case xs of
       [] -> case annTokenSrcSpan (alnOpenS ann) of
         Just openSpan -> deltaFromAnchor openSpan closeSpan
         Nothing -> DeltaPos 0 0
       _ -> deltaFromAnchor (getLoc (last xs)) closeSpan
-
---------------------------------------------------------------------------------
-
--- | Rewrite a token to store a delta instead of an absolute span.
-mapTokenToDelta :: DeltaPos -> AnnToken -> AnnToken
-mapTokenToDelta delta tok = tok {annTokenPos = AnnDelta delta}
 
 --------------------------------------------------------------------------------
 
@@ -406,12 +248,11 @@ anchorMaybeToken :: SrcSpan -> Maybe AnnToken -> Maybe AnnToken
 anchorMaybeToken anchor = fmap (anchorToken anchor)
 
 -- | Rewrite a token by deriving a new delta from its current concrete span.
---
--- This is the shared retokenization kernel used by the @prepare*Layout@ family.
+-- If the token has a concrete span, convert it to a delta; otherwise, leave it unchanged.
 rewriteToken :: AnnToken -> (SrcSpan -> DeltaPos) -> AnnToken
 rewriteToken tok mkDelta =
   case annTokenSrcSpan tok of
-    Just span' -> mapTokenToDelta (mkDelta span') tok
+    Just span' -> setAnnTokenDelta (mkDelta span') tok
     Nothing -> tok
 
 --------------------------------------------------------------------------------
@@ -443,6 +284,8 @@ prepareSetLayout ann bindings = ann {asCloseC = closeToken}
 prepareLetLayout :: AnnLetNode -> [LBinding] -> Expr -> AnnLetNode
 prepareLetLayout ann bindings _ = ann {alIn = inTok}
   where
+    -- if there are bindings, anchor in to the last binding
+    -- otherwise anchor in to let
     inTok = rewriteToken (alIn ann) $ \inSpan ->
       let anchor = case bindings of
             [] -> maybe inSpan id (annTokenSrcSpan (alLet ann))
@@ -455,7 +298,9 @@ prepareLetLayout ann bindings _ = ann {alIn = inTok}
 prepareIfLayout :: AnnIfNode -> Expr -> Expr -> Expr -> AnnIfNode
 prepareIfLayout ann cond thenExpr _ = ann {aifThen = thenTok, aifElse = elseTok}
   where
+    -- anchor then to the condition span
     thenTok = anchorToken (exprSpan cond) (aifThen ann)
+    -- anchor else to the then expression span
     elseTok = anchorToken (exprSpan thenExpr) (aifElse ann)
 
 --------------------------------------------------------------------------------
@@ -464,6 +309,7 @@ prepareIfLayout ann cond thenExpr _ = ann {aifThen = thenTok, aifElse = elseTok}
 prepareWithLayout :: AnnWithNode -> Expr -> Expr -> AnnWithNode
 prepareWithLayout ann scope _ = ann {awSemicolon = semTok}
   where
+    -- anchor ; to the scope span
     semTok = anchorToken (exprSpan scope) (awSemicolon ann)
 
 --------------------------------------------------------------------------------
@@ -472,6 +318,7 @@ prepareWithLayout ann scope _ = ann {awSemicolon = semTok}
 prepareAssertLayout :: AnnAssertNode -> Expr -> Expr -> AnnAssertNode
 prepareAssertLayout ann assertion _ = ann {aaSemicolon = semTok}
   where
+    -- anchor ; to the assertion span
     semTok = anchorToken (exprSpan assertion) (aaSemicolon ann)
 
 --------------------------------------------------------------------------------
@@ -480,6 +327,7 @@ prepareAssertLayout ann assertion _ = ann {aaSemicolon = semTok}
 prepareHasAttrLayout :: AnnHasAttr -> Expr -> AttrPath -> AnnHasAttr
 prepareHasAttrLayout ann expr _ = ann {ahaQuestion = qTok}
   where
+    -- anchor ? to the expression span
     qTok = anchorToken (exprSpan expr) (ahaQuestion ann)
 
 --------------------------------------------------------------------------------
@@ -488,6 +336,7 @@ prepareHasAttrLayout ann expr _ = ann {ahaQuestion = qTok}
 prepareSelectLayout :: AnnSelect -> Expr -> AttrPath -> Maybe LExpr -> AnnSelect
 prepareSelectLayout ann _ path def = ann {aslOr = orTok}
   where
+    -- if or is present, anchor it to the attribute path span
     orTok = case def of
       Just _ -> anchorMaybeToken (attrPathSpan path) (aslOr ann)
       Nothing -> aslOr ann
@@ -498,13 +347,7 @@ prepareSelectLayout ann _ path def = ann {aslOr = orTok}
 tokenDeltaOrZero :: AnnToken -> DeltaPos
 tokenDeltaOrZero = fromMaybe (DeltaPos 0 0) . annTokenDelta
 
---------------------------------------------------------------------------------
-
 -- | Compute the relative delta from one anchor span to a target span.
---
--- This is the inverse of exact-print rendering from deltas: when a subtree is
--- repaired and concrete spans are known, @deltaFromAnchor@ turns those spans
--- back into the relative representation stored in annotations.
 deltaFromAnchor :: SrcSpan -> SrcSpan -> DeltaPos
 deltaFromAnchor anchor target
   | srcSpanFilename anchor /= srcSpanFilename target = DeltaPos 0 0

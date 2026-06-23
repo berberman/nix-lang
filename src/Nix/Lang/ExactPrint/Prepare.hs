@@ -11,22 +11,22 @@ module Nix.Lang.ExactPrint.Prepare
   )
 where
 
-import Nix.Lang.ExactPrint.Internal.Types (ExactPrintResult)
+import Nix.Lang.ExactPrint.Internal.Types (EPResult)
 import Nix.Lang.ExactPrint.Internal.Repair
 import Nix.Lang.Types.Parsed
 
 -- | Prepare an expression into an exact-print-ready form.
-prepareExpr :: Expr -> ExactPrintResult Expr
+prepareExpr :: Expr -> EPResult Expr
 prepareExpr = repairExprLayout
 
 -- | Prepare a binding into an exact-print-ready form.
-prepareBinding :: Binding -> ExactPrintResult Binding
+prepareBinding :: Binding -> EPResult Binding
 prepareBinding = repairBindingLayout
 
 -- | Prepare an attribute path into an exact-print-ready form.
-prepareAttrPath :: AttrPath -> ExactPrintResult AttrPath
+prepareAttrPath :: AttrPath -> EPResult AttrPath
 prepareAttrPath = repairAttrPathLayout
 
 -- | Prepare a function pattern into an exact-print-ready form.
-prepareFuncPat :: FuncPat -> ExactPrintResult FuncPat
+prepareFuncPat :: FuncPat -> EPResult FuncPat
 prepareFuncPat = repairFuncPatLayout

@@ -17,19 +17,16 @@ module Nix.Lang.ExactPrint.Internal.Rebuild
 where
 
 import Data.Data (Data)
-import Data.Text (Text)
 import Nix.Lang.Annotation
-import Nix.Lang.ExactPrint.Internal.Geometry
+import Nix.Lang.ExactPrint.Internal.Utils
+import Nix.Lang.ExactPrint.Internal.Reflow 
 import Nix.Lang.ExactPrint.Internal.Types
 import Nix.Lang.ExactPrint.Operations
-import Nix.Lang.ExactPrint.Internal.Reflow (Flow (..), closeAfter, reflow)
-import Nix.Lang.Outputable (output)
+import Nix.Lang.Outputable (Outputable, renderToText)
 import Nix.Lang.Span
 import Nix.Lang.Types
 import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
-import Prettyprinter (defaultLayoutOptions, layoutPretty)
-import Prettyprinter.Render.Text (renderStrict)
 
 -- | Layout style inferred for set-like binding containers.
 data SetLayoutStyle = SetInline | SetMultiline
@@ -44,34 +41,32 @@ data BodyLayoutStyle = BodyInline | BodyMultiline
 data BindingSequenceAnchor = AnchorPreserveExisting | AnchorStartAtFirstSlot
 
 -- | Rebuild a set from its current bindings while preserving exact-print metadata.
-rebuildSetLayout :: AnnSet -> NixSetIsRecursive -> [LBinding] -> ExactPrintResult Expr
+rebuildSetLayout :: AnnSet -> NixSetIsRecursive -> [LBinding] -> EPResult Expr
 rebuildSetLayout ann kind bindings = rebuildSetLayoutWithAnchor AnchorPreserveExisting ann kind bindings
 
 -- | Rebuild a set using an explicit anchor policy.
---
--- Algorithm:
---
--- * infer inline vs multiline style from the existing annotated shape,
--- * choose the first binding cursor from that style and anchor policy,
--- * reflow bindings left-to-right,
--- * place the close token after the repaired binding sequence,
--- * shift trailing comments with the close token,
--- * normalize the final annotation for exact printing.
-rebuildSetLayoutWithAnchor :: BindingSequenceAnchor -> AnnSet -> NixSetIsRecursive -> [LBinding] -> ExactPrintResult Expr
+rebuildSetLayoutWithAnchor :: BindingSequenceAnchor -> AnnSet -> NixSetIsRecursive -> [LBinding] -> EPResult Expr
 rebuildSetLayoutWithAnchor anchorMode ann kind bindings =
   Right $ NixSet ann' kind (L bindingsSpan shiftedBindings)
   where
     openSpan = expectTokenSpan "set open brace" (asOpenC ann)
     closeSpan = expectTokenSpan "set close brace" (asCloseC ann)
     targetFile = srcSpanFilename openSpan
+    -- infer inline vs multiline style
     style = inferSetLayoutStyle ann bindings
+    -- choose first element cursor
     firstCursor = firstBindingCursor anchorMode style ann bindings
+    -- move elements left-to-right
     shiftedBindings = rebuildBindingsLayout targetFile style firstCursor bindings
+    -- compute new } cursor
     closeStart = closeCursor style closeSpan shiftedBindings
+    -- make span for }
     newCloseSpan = tokenSpanAt closeStart (asCloseC ann)
+    -- shift comments attached to the old }
     closeShiftedComments = shiftComments closeSpan newCloseSpan (followingComments (annComments ann))
     annWithComments = setAnnCommon commonWithComments ann
     annWithClose = annWithComments {asCloseC = closeToken}
+    -- rewrite } as delta
     preparedAnn = prepareSetLayout annWithClose shiftedBindings
     ann' = preparedAnn {asCloseC = closeToken}
     closeToken = (asCloseC ann) {annTokenPos = AnnSpan newCloseSpan}
@@ -89,7 +84,7 @@ rebuildSetLayoutWithAnchor anchorMode ann kind bindings =
     bindingsSpan = listSpanOr base shiftedBindings
 
 -- | Rebuild a @let ... in ...@ container from its current children.
-rebuildLetLayout :: AnnLetNode -> [LBinding] -> LExpr -> ExactPrintResult Expr
+rebuildLetLayout :: AnnLetNode -> [LBinding] -> LExpr -> EPResult Expr
 rebuildLetLayout ann bindings body =
   rebuildLetLayoutWithAnchor AnchorPreserveExisting ann bindings body
 
@@ -97,9 +92,8 @@ rebuildLetLayout ann bindings body =
 --
 -- This follows the same sequence algorithm as sets, but also computes a fresh
 -- @in@ token position and then reanchors the body relative to that token.
-rebuildLetLayoutWithAnchor :: BindingSequenceAnchor -> AnnLetNode -> [LBinding] -> LExpr -> ExactPrintResult Expr
-rebuildLetLayoutWithAnchor anchorMode ann bindings body =
-  Right $ NixLet finalAnn (L bindingsSpan shiftedBindings) shiftedBody
+rebuildLetLayoutWithAnchor :: BindingSequenceAnchor -> AnnLetNode -> [LBinding] -> LExpr -> EPResult Expr
+rebuildLetLayoutWithAnchor anchorMode ann bindings body = Right $ NixLet finalAnn (L bindingsSpan shiftedBindings) shiftedBody
   where
     letSpan = expectTokenSpan "let keyword" (alLet ann)
     oldInSpan = expectTokenSpan "in keyword" (alIn ann)
@@ -121,30 +115,32 @@ rebuildLetLayoutWithAnchor anchorMode ann bindings body =
     bindingsSpan = listSpanOr (letSpan `combineSrcSpans` newInSpan) shiftedBindings
 
 -- | Rebuild a list expression from its current elements.
-rebuildListLayout :: AnnListNode -> [LExpr] -> ExactPrintResult Expr
-rebuildListLayout ann xs =
-  rebuildListLayoutWithAnchor AnchorPreserveExisting ann xs
+rebuildListLayout :: AnnListNode -> [LExpr] -> EPResult Expr
+rebuildListLayout ann xs = rebuildListLayoutWithAnchor AnchorPreserveExisting ann xs
 
 -- | Rebuild a list expression using an explicit anchor policy.
---
--- This is the list analogue of 'rebuildSetLayoutWithAnchor': it reflows the
--- element sequence, then recomputes the closing bracket and any trailing
--- comments attached to it.
-rebuildListLayoutWithAnchor :: BindingSequenceAnchor -> AnnListNode -> [LExpr] -> ExactPrintResult Expr
+rebuildListLayoutWithAnchor :: BindingSequenceAnchor -> AnnListNode -> [LExpr] -> EPResult Expr
 rebuildListLayoutWithAnchor anchorMode ann xs =
   Right $ NixList ann' shiftedElems
   where
     openSpan = expectTokenSpan "list open bracket" (alnOpenS ann)
     closeSpan = expectTokenSpan "list close bracket" (alnCloseS ann)
     targetFile = srcSpanFilename openSpan
+    -- infer list style
     style = inferListLayoutStyle ann xs
+    -- choose first element cursor
     firstCursor = firstListElementCursor anchorMode style ann xs
+    -- move the elements
     shiftedElems = rebuildListElements targetFile style firstCursor xs
+    -- compute ] cursor
     closeStart = listCloseCursor style closeSpan shiftedElems
+    -- make ] span
     newCloseSpan = tokenSpanAt closeStart (alnCloseS ann)
+    -- shift comments
     closeShiftedComments = shiftComments closeSpan newCloseSpan (followingComments (annComments ann))
     annWithComments = setAnnCommon commonWithComments ann
     annWithClose = annWithComments {alnCloseS = closeToken}
+    -- rewrite ]
     ann' = prepareListLayout annWithClose shiftedElems
     closeToken = (alnCloseS ann) {annTokenPos = AnnSpan newCloseSpan}
     base = openSpan `combineSrcSpans` newCloseSpan
@@ -161,6 +157,8 @@ rebuildListLayoutWithAnchor anchorMode ann xs =
 -- | Infer whether a @let@ binding list should stay inline or multiline.
 inferLetBindingLayoutStyle :: AnnLetNode -> [LBinding] -> SetLayoutStyle
 inferLetBindingLayoutStyle ann bindings =
+  -- if the first binding and the in keyword are on the same line as the let keyword, keep it inline
+  -- otherwise, make it multiline
   case bindings of
     firstBinding : _
       | srcSpanStartLine (getLoc firstBinding) == srcSpanStartLine letSpan
@@ -199,14 +197,16 @@ firstLetBindingCursor anchorMode style ann bindings =
       AnchorStartAtFirstSlot -> False
 
 -- | Compute where the @in@ token should be placed after repairing bindings.
+-- For inline let, in goes after the last binding plus a space.
+-- For multiline let, in goes on a new line, indented to the same level as the old in.
 letInCursor :: SetLayoutStyle -> SrcSpan -> [LBinding] -> RenderCursor
 letInCursor style oldIn bindings =
   case (style, reverse bindings) of
     (_, []) -> cursorAtSpanStart oldIn
     (SetInline, lastBinding : _) ->
-      advanceCursor (cursorAtSpanStart (getLoc lastBinding)) (renderBindingSyntax (unLoc lastBinding) <> " ")
+      advanceCursor (cursorAtSpanStart (getLoc lastBinding)) (renderToText (unLoc lastBinding) <> " ")
     (SetMultiline, lastBinding : _) ->
-      let endCursor = advanceCursor (cursorAtSpanStart (getLoc lastBinding)) (renderBindingSyntax (unLoc lastBinding))
+      let endCursor = advanceCursor (cursorAtSpanStart (getLoc lastBinding)) (renderToText (unLoc lastBinding))
        in RenderCursor (rcLine endCursor + 1) (srcSpanStartColumn oldIn)
 
 -- | Infer whether the body after @in@ should stay inline or move to a new line.
@@ -220,6 +220,8 @@ rebuildLetBodyLayout :: BodyLayoutStyle -> SrcSpan -> SrcSpan -> LExpr -> LExpr
 rebuildLetBodyLayout style oldInSpan newInSpan body =
   normalizeExprLayout (translateFromTo (getLoc body) targetSpan body)
   where
+    -- For inline body, place body right after in.
+    -- For multiline body, preserve the body's old relative gap from in.
     targetSpan = case style of
       BodyInline ->
         mkSrcSpan
@@ -233,6 +235,8 @@ rebuildLetBodyLayout style oldInSpan newInSpan body =
 -- | Infer whether a list should stay inline or multiline.
 inferListLayoutStyle :: AnnListNode -> [LExpr] -> ListLayoutStyle
 inferListLayoutStyle ann xs =
+  -- if the first element and ] are on ['s line, keep it inline
+  -- otherwise, make it multiline
   case xs of
     firstElem : _
       | srcSpanStartLine (getLoc firstElem) == srcSpanStartLine openSpan
@@ -267,17 +271,11 @@ firstListElementCursor anchorMode style ann xs =
 
 -- | Reflow list elements from left to right.
 rebuildListElements :: String -> ListLayoutStyle -> RenderCursor -> [LExpr] -> [LExpr]
-rebuildListElements targetFile style startCursor =
-  rebuildSequenceLayout (listFlow style) renderExprSyntax reanchorExpr normalizeExprLayout targetFile startCursor
+rebuildListElements targetFile style startCursor = rebuildSequenceLayout (listFlow style) reanchorLocated normalizeExprLayout targetFile startCursor
 
 -- | Compute where the closing bracket should be placed after repairing a list.
 listCloseCursor :: ListLayoutStyle -> SrcSpan -> [LExpr] -> RenderCursor
-listCloseCursor style oldClose xs =
-  closeSequenceCursor (listFlow style) renderExprSyntax oldClose xs
-
--- | Move an expression so its outer span starts at a given cursor.
-reanchorExpr :: String -> RenderCursor -> LExpr -> LExpr
-reanchorExpr = reanchorLocated
+listCloseCursor style oldClose xs = closeAfter (listFlow style) renderToText oldClose xs
 
 -- | Infer whether a set should stay inline or multiline.
 inferSetLayoutStyle :: AnnSet -> [LBinding] -> SetLayoutStyle
@@ -330,17 +328,11 @@ preservesExistingAnchors = \case
 
 -- | Reflow bindings from left to right.
 rebuildBindingsLayout :: String -> SetLayoutStyle -> RenderCursor -> [LBinding] -> [LBinding]
-rebuildBindingsLayout targetFile style startCursor =
-  rebuildSequenceLayout (setFlow style) renderBindingSyntax reanchorBinding normalizeBindingLayout targetFile startCursor
+rebuildBindingsLayout targetFile style startCursor = rebuildSequenceLayout (setFlow style) reanchorLocated normalizeBindingLayout targetFile startCursor
 
 -- | Compute where the closing brace should be placed after repairing bindings.
 closeCursor :: SetLayoutStyle -> SrcSpan -> [LBinding] -> RenderCursor
-closeCursor style oldClose bindings =
-  closeSequenceCursor (setFlow style) renderBindingSyntax oldClose bindings
-
--- | Move a binding so its outer span starts at a given cursor.
-reanchorBinding :: String -> RenderCursor -> LBinding -> LBinding
-reanchorBinding = reanchorLocated
+closeCursor style oldClose bindings = closeAfter (setFlow style) renderToText oldClose bindings
 
 reanchorLocated :: (Data a) => String -> RenderCursor -> Located a -> Located a
 reanchorLocated targetFile target located@(L originalSpan _) =
@@ -360,20 +352,19 @@ listFlow = \case
   ListInline -> FlowInline
   ListMultiline -> FlowMultiline
 
--- | Render a binding for cursor advancement during rebuild.
-renderBindingSyntax :: Binding -> Text
-renderBindingSyntax = renderStrict . layoutPretty defaultLayoutOptions . output
-
--- | Render an expression for cursor advancement during rebuild.
-renderExprSyntax :: Expr -> Text
-renderExprSyntax = renderStrict . layoutPretty defaultLayoutOptions . output
-
-rebuildSequenceLayout :: Flow -> (a -> Text) -> (String -> RenderCursor -> Located a -> Located a) -> (Located a -> Located a) -> String -> RenderCursor -> [Located a] -> [Located a]
-rebuildSequenceLayout flow renderSyntax reanchor normalize targetFile startCursor =
-  reflow flow renderSyntax (\cursor -> normalize . reanchor targetFile cursor) startCursor
-
-closeSequenceCursor :: Flow -> (a -> Text) -> SrcSpan -> [Located a] -> RenderCursor
-closeSequenceCursor = closeAfter
+-- | Rebuild a sequence of located elements with a given layout style.
+-- Each element is reanchored to a new cursor, normalized, and used to compute the next cursor.
+rebuildSequenceLayout ::
+  (Outputable a) =>
+  Flow ->
+  (String -> RenderCursor -> Located a -> Located a) ->
+  (Located a -> Located a) ->
+  String ->
+  RenderCursor ->
+  [Located a] ->
+  [Located a]
+rebuildSequenceLayout flow reanchor normalize targetFile startCursor =
+  reflow flow renderToText (\cursor -> normalize . reanchor targetFile cursor) startCursor
 
 -- | Normalize a binding subtree after it has been structurally moved.
 normalizeBindingLayout :: LBinding -> LBinding
@@ -381,7 +372,7 @@ normalizeBindingLayout (L l binding) = L l $ case binding of
   NixNormalBinding ann path expr ->
     let path' = normalizeAttrPathLayout path
         equalTok = case annTokenSrcSpan (anbEqual ann) of
-          Just eqSpan -> mapTokenToDelta (deltaFromAnchor (attrPathSpan (unLoc path')) eqSpan) (anbEqual ann)
+          Just eqSpan -> setAnnTokenDelta (deltaFromAnchor (attrPathSpan (unLoc path')) eqSpan) (anbEqual ann)
           Nothing -> anbEqual ann
         expr' = case annTokenSrcSpan (anbEqual ann) of
           Just eqSpan ->
@@ -389,7 +380,7 @@ normalizeBindingLayout (L l binding) = L l $ case binding of
              in normalizeExprLayout (translateFromTo (getLoc expr) targetExprSpan expr)
           Nothing -> normalizeExprLayout expr
         semTok = case annTokenSrcSpan (anbSemicolon ann) of
-          Just _ -> mapTokenToDelta (DeltaPos 0 0) (anbSemicolon ann)
+          Just _ -> setAnnTokenDelta (DeltaPos 0 0) (anbSemicolon ann)
           Nothing -> anbSemicolon ann
      in NixNormalBinding ann {anbEqual = equalTok, anbSemicolon = semTok} path' expr'
   other -> other
@@ -401,7 +392,7 @@ normalizeAttrPathLayout (L l (NixAttrPath ann keys)) = L l $ NixAttrPath ann' ke
     ann' = ann {aapDots = normalizeDots keys (aapDots ann)}
     normalizeDots pathKeys dots = zipWith mkDot pathKeys (take (max 0 (length pathKeys - 1)) (dots <> repeat fallbackDot))
     mkDot key tok = case annTokenSrcSpan tok of
-      Just dotSpan -> mapTokenToDelta (deltaFromAnchor (getLoc key) dotSpan) tok
+      Just dotSpan -> setAnnTokenDelta (deltaFromAnchor (getLoc key) dotSpan) tok
       Nothing -> deltaAnnToken AnnDot (DeltaPos 0 0)
     fallbackDot = deltaAnnToken AnnDot (DeltaPos 0 0)
 
