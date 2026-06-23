@@ -68,7 +68,14 @@ library
   exposed-modules:
     Nix.Lang.Annotation
     Nix.Lang.Edit
+    Nix.Lang.Edit.Internal.TH
     Nix.Lang.ExactPrint
+    Nix.Lang.ExactPrint.Internal.Parse
+    Nix.Lang.ExactPrint.Internal.Rebuild
+    Nix.Lang.ExactPrint.Internal.Reflow
+    Nix.Lang.ExactPrint.Internal.Repair
+    Nix.Lang.ExactPrint.Internal.Types
+    Nix.Lang.ExactPrint.Internal.Utils
     Nix.Lang.ExactPrint.Operations
     Nix.Lang.Outputable
     Nix.Lang.Parser
@@ -78,16 +85,6 @@ library
     Nix.Lang.Types.Base
     Nix.Lang.Types.Parsed
     Nix.Lang.Utils
-
-  other-modules:
-    Nix.Lang.Edit.Internal.TH
-    Nix.Lang.ExactPrint.Internal.Parse
-    Nix.Lang.ExactPrint.Internal.Rebuild
-    Nix.Lang.ExactPrint.Internal.Reflow
-    Nix.Lang.ExactPrint.Internal.Repair
-    Nix.Lang.ExactPrint.Internal.Types
-    Nix.Lang.ExactPrint.Internal.Utils
-    Nix.Lang.ExactPrint.Prepare
 
   hs-source-dirs:  src
 

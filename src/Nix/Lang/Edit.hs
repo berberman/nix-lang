@@ -65,14 +65,16 @@ import Nix.Lang.Annotation
 import Nix.Lang.Edit.Internal.TH
 import qualified Nix.Lang.ExactPrint.Internal.Parse as EPP
 import Nix.Lang.ExactPrint.Internal.Rebuild
+import Nix.Lang.ExactPrint.Internal.Repair
 import qualified Nix.Lang.ExactPrint.Internal.Types as EPT
 import Nix.Lang.ExactPrint.Internal.Utils
 import Nix.Lang.ExactPrint.Operations
-import Nix.Lang.ExactPrint.Prepare
 import Nix.Lang.Span
 import Nix.Lang.Types
 import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
+
+--------------------------------------------------------------------------------
 
 data SelectError
   = SelectorMismatch
@@ -103,6 +105,7 @@ data EditError
   | PrepareError EPT.EPError
   | ExpectedIntegerLiteral SrcSpan
   deriving (Show, Eq)
+--------------------------------------------------------------------------------
 
 data Edited a
   = Raw (Located a)
@@ -121,6 +124,8 @@ newtype Update focus = Update
   { runUpdate :: Located focus -> Either EditError (Edited focus)
   }
 
+--------------------------------------------------------------------------------
+
 withSelectionError :: Either SelectError a -> Either EditError a
 withSelectionError = mapLeft SelectionError
 
@@ -130,14 +135,20 @@ withUpdateError = mapLeft UpdateError
 withPrepareError :: Either EPT.EPError a -> Either EditError a
 withPrepareError = mapLeft PrepareError
 
+--------------------------------------------------------------------------------
+
 mapLeft :: (e -> e') -> Either e a -> Either e' a
 mapLeft f result =
   case result of
     Left err -> Left (f err)
     Right value -> Right value
 
+--------------------------------------------------------------------------------
+
 root :: Selector a a
 root = Selector {runSelector = \x -> Right Selected {selected = x, replaceSelected = Right}}
+
+--------------------------------------------------------------------------------
 
 infixl 5 //
 
@@ -154,6 +165,8 @@ Selector ab // Selector bc =
             }
     }
 
+--------------------------------------------------------------------------------
+
 replace :: Located focus -> Update focus
 replace replacement = Update (Right . const (Raw replacement))
 
@@ -162,6 +175,7 @@ modify f = modifyLocated (fmap f)
 
 modifyLocated :: (Located focus -> Located focus) -> Update focus
 modifyLocated f = Update (Right . Raw . f)
+--------------------------------------------------------------------------------
 
 replaceExprText :: Text -> Update Expr
 replaceExprText source =
@@ -231,29 +245,31 @@ insertInheritKeyTextAt idx source =
   Update $ \focused -> do
     newKey <- withUpdateError $ EPP.parseAttrKey source
     runUpdate (insertInheritKeyAt idx newKey) focused
+--------------------------------------------------------------------------------
 
 class EditableRoot root where
   prepareEditedRoot :: Located root -> Either EPT.EPError (Located root)
 
 instance EditableRoot Expr where
   prepareEditedRoot (L _ value) = do
-    repaired <- prepareExpr value
+    repaired <- repairExprLayout value
     pure (L (exprSpan repaired) repaired)
 
 instance EditableRoot Binding where
   prepareEditedRoot (L _ value) = do
-    repaired <- prepareBinding value
+    repaired <- repairBindingLayout value
     pure (L (bindingSpan repaired) repaired)
 
 instance EditableRoot AttrPath where
   prepareEditedRoot (L _ value) = do
-    repaired <- prepareAttrPath value
+    repaired <- repairAttrPathLayout value
     pure (L (attrPathSpan repaired) repaired)
 
 instance EditableRoot FuncPat where
   prepareEditedRoot (L _ value) = do
-    repaired <- prepareFuncPat value
+    repaired <- repairFuncPatLayout value
     pure (L (funcPatBodySpan repaired) repaired)
+--------------------------------------------------------------------------------
 
 editWith :: (EditableRoot root) => Selector root focus -> Update focus -> Located root -> Either EditError (Located root)
 editWith selector update input = do
@@ -263,22 +279,16 @@ editWith selector update input = do
   case rebuilt of
     Ready root' -> Right root'
     Raw root' -> withPrepareError $ prepareEditedRoot root'
+--------------------------------------------------------------------------------
 
 prepareAttrPathNode :: Located AttrPath -> Either EditError (Located AttrPath)
 prepareAttrPathNode = withPrepareError . prepareEditedRoot
+--------------------------------------------------------------------------------
 
 editedValue :: Edited a -> Located a
 editedValue = \case
   Raw x -> x
   Ready x -> x
-
-staticAttrKeyText :: AttrKey -> Maybe Text
-staticAttrKeyText = \case
-  NixStaticAttrKey _ (L _ key) -> Just key
-  _ -> Nothing
-
-staticAttrPathText :: AttrPath -> Maybe [Text]
-staticAttrPathText (NixAttrPath _ keys) = traverse (staticAttrKeyText . unLoc) keys
 
 bindingDefinesPath :: [Text] -> Binding -> Bool
 bindingDefinesPath path = \case
@@ -347,13 +357,6 @@ shiftAttrKeysRight :: Int -> [LAttrKey] -> [LAttrKey]
 shiftAttrKeysRight delta = fmap shiftOne
   where
     shiftOne key = translateFromTo (getLoc key) (shiftSpanRight delta (getLoc key)) key
-
-shiftSpanRight :: Int -> SrcSpan -> SrcSpan
-shiftSpanRight delta span' =
-  mkSrcSpan
-    (srcSpanFilename span')
-    (srcSpanStartLine span', srcSpanStartColumn span' + delta)
-    (srcSpanEndLine span', srcSpanEndColumn span' + delta)
 
 prepareInsertedLetBody :: AnnLetNode -> [LBinding] -> LExpr -> LExpr
 prepareInsertedLetBody ann bindings body

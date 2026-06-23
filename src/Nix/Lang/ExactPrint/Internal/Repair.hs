@@ -20,13 +20,11 @@ import Nix.Lang.ExactPrint.Internal.Rebuild
 import Nix.Lang.ExactPrint.Internal.Types
 import Nix.Lang.ExactPrint.Internal.Utils
 import Nix.Lang.ExactPrint.Operations
-import Nix.Lang.Outputable (output, renderToText)
+import Nix.Lang.Outputable (renderToText)
 import Nix.Lang.Span
 import Nix.Lang.Types
 import Nix.Lang.Types.Parsed
 import Nix.Lang.Utils
-import Prettyprinter (defaultLayoutOptions, layoutPretty)
-import Prettyprinter.Render.Text (renderStrict)
 
 --------------------------------------------------------------------------------
 
@@ -423,8 +421,8 @@ repairAttrKeyAt :: RenderCursor -> LAttrKey -> RepairM LAttrKey
 repairAttrKeyAt cursor (L _ key) =
   let span' = case key of
         NixStaticAttrKey _ ident -> textSpanAt (cursorFile ident) cursor (unLoc ident)
-        NixDynamicStringAttrKey _ _ -> textSpanAt cursorFallbackFile cursor (renderAttrKeyTextLocal key)
-        NixDynamicInterpolAttrKey _ _ -> textSpanAt cursorFallbackFile cursor (renderAttrKeyTextLocal key)
+        NixDynamicStringAttrKey _ _ -> textSpanAt cursorFallbackFile cursor (renderToText key)
+        NixDynamicInterpolAttrKey _ _ -> textSpanAt cursorFallbackFile cursor (renderToText key)
       key' = case key of
         NixStaticAttrKey ann ident -> NixStaticAttrKey ann (repairLocatedTextAt cursor ident)
         other -> other
@@ -433,13 +431,17 @@ repairAttrKeyAt cursor (L _ key) =
 --------------------------------------------------------------------------------
 
 repairLocatedLitAt :: RenderCursor -> LLit -> LLit
-repairLocatedLitAt cursor (L _ lit) = L (textSpanAt cursorFallbackFile cursor (renderLitTextLocal lit)) lit
+repairLocatedLitAt cursor (L _ lit) = L (textSpanAt cursorFallbackFile cursor (renderToText lit)) lit
 
 repairLocatedStringAt :: RenderCursor -> LNString -> LNString
-repairLocatedStringAt cursor (L _ str) = L (textSpanAt cursorFallbackFile cursor (renderStringTextLocal str)) str
+repairLocatedStringAt cursor (L _ str) = L (textSpanAt cursorFallbackFile cursor (renderStringText str)) str
+  where
+    renderStringText = \case
+      NixDoubleQuotesString src _ -> renderDoubleQuotedSourceText src
+      NixDoubleSingleQuotesString src _ -> renderIndentedStringSourceText src
 
 repairLocatedPathAt :: RenderCursor -> LPath -> LPath
-repairLocatedPathAt cursor (L _ path) = L (textSpanAt cursorFallbackFile cursor (renderPathTextLocal path)) path
+repairLocatedPathAt cursor (L _ path) = L (textSpanAt cursorFallbackFile cursor (renderToText path)) path
 
 repairLocatedTextAt :: RenderCursor -> Located Text -> Located Text
 repairLocatedTextAt cursor (L _ txt) = L (textSpanAt cursorFallbackFile cursor txt) txt
@@ -461,7 +463,7 @@ repairSetPatBindingsAt ann startCursor bindings = snd <$> foldM step (startCurso
   where
     step (cursor, repaired) (idx, binding) = do
       binding' <- repairSetPatBindingAt ann idx cursor binding
-      let next = advanceCursor (spanStartCursor (getLoc binding')) (renderSetPatBindingSyntax (unLoc binding'))
+      let next = advanceCursor (spanStartCursor (getLoc binding')) (renderToText (unLoc binding'))
       pure (next, repaired <> [binding'])
 
 repairSetPatBindingAt :: AnnSetPatNode -> Int -> RenderCursor -> LSetPatBinding -> RepairM LSetPatBinding
@@ -537,58 +539,6 @@ repairSetPatCloseSpan :: AnnSetPatNode -> [LSetPatBinding] -> NixSetPatEllipses 
 repairSetPatCloseSpan ann bindings _ =
   case reverse bindings of
     lastBinding : _ ->
-      let endCursor = advanceCursor (spanStartCursor (getLoc lastBinding)) (renderSetPatBindingSyntax (unLoc lastBinding))
+      let endCursor = advanceCursor (spanStartCursor (getLoc lastBinding)) (renderToText (unLoc lastBinding))
        in tokenSpanAt endCursor (aspCloseC ann)
     [] -> expectTokenSpan "set pattern close" (aspCloseC ann)
-
-renderSetPatBindingSyntax :: SetPatBinding -> Text
-renderSetPatBindingSyntax = renderStrict . layoutPretty defaultLayoutOptions . output
-
---------------------------------------------------------------------------------
-
-renderLitTextLocal :: Lit -> Text
-renderLitTextLocal = \case
-  NixUri _ uri -> uri
-  NixInteger _ int -> T.pack (show int)
-  NixFloat _ float -> T.pack (show float)
-  NixBoolean _ True -> "true"
-  NixBoolean _ False -> "false"
-  NixNull _ -> "null"
-
-renderStringTextLocal :: NString -> Text
-renderStringTextLocal = \case
-  NixDoubleQuotesString (SourceText src) _ -> "\"" <> src <> "\""
-  NixDoubleSingleQuotesString (SourceText src) _ -> "''" <> src <> "''"
-
-renderPathTextLocal :: Path -> Text
-renderPathTextLocal = \case
-  NixLiteralPath _ path -> path
-  NixInterpolPath _ parts -> renderInterpolatedPathTextLocal parts
-
-renderAttrKeyTextLocal :: AttrKey -> Text
-renderAttrKeyTextLocal = \case
-  NixStaticAttrKey _ ident -> unLoc ident
-  NixDynamicStringAttrKey _ parts -> renderDoubleQuotedPartsTextLocal parts
-  NixDynamicInterpolAttrKey _ expr -> renderInterpolatedExprTextLocal expr
-
-renderInterpolatedPathTextLocal :: [LNixStringPart Ps] -> Text
-renderInterpolatedPathTextLocal = T.concat . fmap (renderPathPartTextLocal . unLoc)
-
-renderDoubleQuotedPartsTextLocal :: [LNixStringPart Ps] -> Text
-renderDoubleQuotedPartsTextLocal parts = "\"" <> renderQuotedPartsTextLocal parts <> "\""
-
-renderQuotedPartsTextLocal :: [LNixStringPart Ps] -> Text
-renderQuotedPartsTextLocal = T.concat . fmap (renderQuotedPartTextLocal . unLoc)
-
-renderPathPartTextLocal :: NixStringPart Ps -> Text
-renderPathPartTextLocal = \case
-  NixStringLiteral _ txt -> txt
-  NixStringInterpol _ expr -> renderInterpolatedExprTextLocal expr
-
-renderQuotedPartTextLocal :: NixStringPart Ps -> Text
-renderQuotedPartTextLocal = \case
-  NixStringLiteral _ txt -> txt
-  NixStringInterpol _ expr -> renderInterpolatedExprTextLocal expr
-
-renderInterpolatedExprTextLocal :: LExpr -> Text
-renderInterpolatedExprTextLocal expr = "${" <> renderToText (unLoc expr) <> "}"

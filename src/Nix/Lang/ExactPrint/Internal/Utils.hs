@@ -5,6 +5,11 @@ module Nix.Lang.ExactPrint.Internal.Utils
   ( bindingSpan,
     bindingRenderSpan,
     bindingComments,
+    staticAttrKeyText,
+    staticAttrPathText,
+    renderDoubleQuotedSourceText,
+    renderIndentedStringSourceText,
+    shiftSpanRight,
     shiftComments,
     applyDeltaToAnchor,
     tokenSpanAt,
@@ -72,6 +77,16 @@ bindingComments = \case
   NixNormalBinding ann _ _ -> annComments ann
   NixInheritBinding ann _ _ -> annComments ann
 
+-- | Get the concrete text of a static attribute key.
+staticAttrKeyText :: AttrKey -> Maybe Text
+staticAttrKeyText = \case
+  NixStaticAttrKey _ (L _ key) -> Just key
+  _ -> Nothing
+
+-- | Get the concrete text segments of a fully static attribute path.
+staticAttrPathText :: AttrPath -> Maybe [Text]
+staticAttrPathText (NixAttrPath _ keys) = traverse (staticAttrKeyText . unLoc) keys
+
 --------------------------------------------------------------------------------
 
 -- | Move a list of comments from one span anchor to another.
@@ -80,6 +95,22 @@ bindingComments = \case
 -- from the owning token or delimiter.
 shiftComments :: SrcSpan -> SrcSpan -> [Located Comment] -> [Located Comment]
 shiftComments oldSpan newSpan = fmap (translateFromTo oldSpan newSpan)
+
+-- | Shift a span horizontally on the same line by a fixed number of columns.
+shiftSpanRight :: Int -> SrcSpan -> SrcSpan
+shiftSpanRight delta span' =
+  mkSrcSpan
+    (srcSpanFilename span')
+    (srcSpanStartLine span', srcSpanStartColumn span' + delta)
+    (srcSpanEndLine span', srcSpanEndColumn span' + delta)
+
+-- | Render the exact parsed source of a double-quoted string.
+renderDoubleQuotedSourceText :: SourceText -> Text
+renderDoubleQuotedSourceText (SourceText src) = "\"" <> src <> "\""
+
+-- | Render the exact parsed source of an indented string.
+renderIndentedStringSourceText :: SourceText -> Text
+renderIndentedStringSourceText (SourceText src) = "''" <> src <> "''"
 
 --------------------------------------------------------------------------------
 

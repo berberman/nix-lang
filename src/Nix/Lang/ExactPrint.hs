@@ -19,6 +19,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.Annotation
 import Nix.Lang.ExactPrint.Operations
+import Nix.Lang.ExactPrint.Internal.Utils
 import Nix.Lang.Outputable (renderToText)
 import Nix.Lang.Span
 import Nix.Lang.Types
@@ -534,9 +535,3 @@ renderCommentText :: Comment -> Text
 renderCommentText = \case
   LineComment txt -> "#" <> txt
   BlockComment txt -> "/*" <> txt <> "*/"
-
-renderDoubleQuotedSourceText :: SourceText -> Text
-renderDoubleQuotedSourceText (SourceText src) = "\"" <> src <> "\""
-
-renderIndentedStringSourceText :: SourceText -> Text
-renderIndentedStringSourceText (SourceText src) = "''" <> src <> "''"
