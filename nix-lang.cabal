@@ -84,6 +84,7 @@ library
     Nix.Lang.Types
     Nix.Lang.Types.Base
     Nix.Lang.Types.Parsed
+    Nix.Lang.Types.Rename
     Nix.Lang.Utils
 
   hs-source-dirs:  src
