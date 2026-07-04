@@ -2,6 +2,25 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 
+-- | Exact printing for annotated Nix ASTs.
+--
+-- This module turns an annotated tree back into source text.
+--
+-- Its job is not "pretty printing" in the general sense. It follows the layout,
+-- token positions, and comment ownership stored in the parsed tree, so it is the
+-- renderer to use after parsing or after edits from 'Nix.Lang.Edit'.
+--
+-- For fresh syntax trees that do not carry exact-print annotations, use
+-- 'Nix.Lang.RFCPrint' or 'Nix.Lang.Outputable' instead.
+--
+-- Minimal example:
+--
+-- @
+-- import Nix.Lang.ExactPrint (renderExactText)
+--
+-- -- expr :: Nix.Lang.Types.Ps.Expr
+-- rendered = renderExactText expr
+-- @
 module Nix.Lang.ExactPrint
   ( ExactPrint,
     EPError (..),
@@ -19,11 +38,11 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.Annotation
 import Nix.Lang.ExactPrint.Operations
-import Nix.Lang.ExactPrint.Internal.Utils
+import Nix.Lang.ExactPrint.Prepare.Utils
 import Nix.Lang.Outputable (renderToText)
 import Nix.Lang.Span
 import Nix.Lang.Types
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Nix.Lang.Utils
 import Prettyprinter (Doc, pretty)
 

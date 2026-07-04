@@ -1,5 +1,5 @@
--- | Low-level sequence reflow helpers used by internal exact-print rebuilding.
-module Nix.Lang.ExactPrint.Internal.Reflow where
+-- | Sequence reflow primitives used while rebuilding lists and binding groups.
+module Nix.Lang.ExactPrint.Prepare.Reflow where
 
 import Data.Text (Text)
 import Nix.Lang.ExactPrint.Operations

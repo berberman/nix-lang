@@ -1,8 +1,8 @@
--- | Container rebuilding and layout normalization for internal exact-print preparation.
+-- | Container rebuilding and layout normalization for exact-print preparation.
 --
--- This module owns the logic that reflows binding and element sequences while
--- preserving exact-print token/comment relationships.
-module Nix.Lang.ExactPrint.Internal.Rebuild
+-- This is the part of the repair pipeline that puts lists, sets, and @let@
+-- bindings back into shape after their children have moved.
+module Nix.Lang.ExactPrint.Prepare.Rebuild
   ( BindingSequenceAnchor (..),
     rebuildSetLayout,
     rebuildSetLayoutWithAnchor,
@@ -18,14 +18,14 @@ where
 
 import Data.Data (Data)
 import Nix.Lang.Annotation
-import Nix.Lang.ExactPrint.Internal.Utils
-import Nix.Lang.ExactPrint.Internal.Reflow 
-import Nix.Lang.ExactPrint.Internal.Types
+import Nix.Lang.ExactPrint.Prepare.Reflow
+import Nix.Lang.ExactPrint.Prepare.Types
+import Nix.Lang.ExactPrint.Prepare.Utils
 import Nix.Lang.ExactPrint.Operations
 import Nix.Lang.Outputable (Outputable, renderToText)
 import Nix.Lang.Span
 import Nix.Lang.Types
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Nix.Lang.Utils
 
 -- | Layout style inferred for set-like binding containers.

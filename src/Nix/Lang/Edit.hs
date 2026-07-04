@@ -1,6 +1,50 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+-- | Structured tree editing for annotated Nix ASTs.
+--
+-- This is the high-level API for changing a parsed Nix tree without throwing
+-- away its comments and layout.
+--
+-- The core model is:
+--
+-- * a 'Selector root focus' navigates from a root tree to one focused subtree,
+-- * an 'Update focus' describes how to replace or modify that focused value,
+-- * 'editExpr', 'editBinding', 'editAttrPath', and 'editFuncPat' rebuild the
+--   outer tree and repair exact-print metadata after the change.
+--
+-- Selector composition with '(//)' builds a path through the tree. Some updates
+-- work directly on AST values, such as 'replace' and 'modify'. Others, such as
+-- 'replaceExprText' or 'insertBindingText', accept a Nix fragment and splice the
+-- parsed result into the existing tree.
+--
+-- Most failures are either selection failures, update/prepare failures, or a
+-- type-specific mismatch such as applying an integer-only update to a
+-- non-integer literal.
+--
+-- A typical edit is “find this one thing, change it, leave the rest alone”.
+-- For example, this updates one binding value while preserving the surrounding
+-- comments and layout.
+--
+-- @
+-- import Nix.Lang.Edit
+-- import Nix.Lang.ExactPrint (renderExactText)
+--
+-- -- Given an annotated expression parsed from:
+-- -- { # keep
+-- --   version = "1.0";
+-- --   name = "pkg";
+-- -- }
+-- --
+-- -- expr :: Nix.Lang.Types.Ps.Expr
+--
+-- case editExpr expr (root // bindingByKey "version" // bindingValue) (replaceExprText "\"2.0\"") of
+--   Right edited -> renderExactText edited
+--   Left err -> error (show err)
+-- @
+--
+-- If you only need rendering, not tree surgery, use 'Nix.Lang.ExactPrint' for
+-- parsed trees or 'Nix.Lang.RFCPrint' for fresh syntax trees.
 module Nix.Lang.Edit
   ( Selector,
     Update,
@@ -63,15 +107,15 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.Annotation
 import Nix.Lang.Edit.Internal.TH
-import qualified Nix.Lang.ExactPrint.Internal.Parse as EPP
-import Nix.Lang.ExactPrint.Internal.Rebuild
-import Nix.Lang.ExactPrint.Internal.Repair
-import qualified Nix.Lang.ExactPrint.Internal.Types as EPT
-import Nix.Lang.ExactPrint.Internal.Utils
+import qualified Nix.Lang.ExactPrint.Prepare.Parse as EPP
+import Nix.Lang.ExactPrint.Prepare.Rebuild
+import Nix.Lang.ExactPrint.Prepare.Repair
+import qualified Nix.Lang.ExactPrint.Prepare.Types as EPT
+import Nix.Lang.ExactPrint.Prepare.Utils
 import Nix.Lang.ExactPrint.Operations
 import Nix.Lang.Span
 import Nix.Lang.Types
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Nix.Lang.Utils
 
 --------------------------------------------------------------------------------

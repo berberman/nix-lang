@@ -3,7 +3,7 @@ module Utils where
 import qualified Data.Text as T
 import Nix.Lang.Parser
 import Nix.Lang.Types
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Test.Tasty.HUnit
 import Text.Megaparsec (eof, errorBundlePretty)
 
@@ -22,5 +22,11 @@ parseFileOrFail fp src =
 parseExprFails :: T.Text -> Assertion
 parseExprFails src =
   case runNixParser (nixExpr <* eof) "<expr>" src of
+    (Left _, _) -> pure ()
+    (Right expr, _) -> assertFailure $ "expected parse failure, got: " <> show expr
+
+parseFileFails :: FilePath -> T.Text -> Assertion
+parseFileFails fp src =
+  case runNixParser nixFile fp src of
     (Left _, _) -> pure ()
     (Right expr, _) -> assertFailure $ "expected parse failure, got: " <> show expr

@@ -1,6 +1,25 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Parser for Nix source text.
+--
+-- This is where raw Nix source first becomes an annotated tree.
+--
+-- The parser does more than produce syntax: it also records source spans,
+-- comments, and token ownership, which is what makes later exact printing and
+-- layout-preserving edits possible.
+--
+-- The usual entry points are 'nixFile' for a full file and 'nixExpr' for a
+-- standalone expression.
+--
+-- Example:
+--
+-- @
+-- import Text.Megaparsec (eof)
+-- import Nix.Lang.Parser (nixExpr, runNixParser)
+--
+-- parsed = runNixParser (nixExpr <* eof) "<expr>" "x: x + 1"
+-- @
 module Nix.Lang.Parser where
 
 import Control.Monad (forM, guard, msum, unless, void, when)
@@ -13,9 +32,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
 import Nix.Lang.Annotation
+import Nix.Lang.Lexer.Text
 import Nix.Lang.Span
 import Nix.Lang.Types
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Nix.Lang.Utils
 import Text.Megaparsec hiding (State, Token, token)
 import Text.Megaparsec.Char
@@ -314,19 +334,6 @@ nixVar =
 
 --------------------------------------------------------------------------------
 
-escapedChars :: [(Char, Char)]
-escapedChars =
-  [ ('n', '\n'),
-    ('t', '\t'),
-    ('r', '\r'),
-    ('\\', '\\'),
-    ('$', '$'),
-    ('"', '"'),
-    ('\'', '\''),
-    ('.', '.'),
-    ('{', '{')
-  ]
-
 escapedChar :: Parser Char
 escapedChar = choice [char code >> pure r | (code, r) <- escapedChars] <|> anySingle
 
@@ -411,11 +418,15 @@ nixString = lexeme $ doubleQuotesString <|> doubleSingleQuotesString
 --------------------------------------------------------------------------------
 
 nixPar :: Parser (NixExpr Ps)
-nixPar =
-  locatedC ((,,) <$> open <*> located nixExpr <*> close) >>= \(L l (lp, x, rp)) -> do
-    common <- mkAnnCommon l
-    ann <- attachCommentsBeforeAnchor (getLoc rp) $ AnnParNode common (parsedAnnToken AnnOpenP (getLoc lp)) (parsedAnnToken AnnCloseP (getLoc rp))
-    pure $ NixPar ann x
+nixPar = do
+  lp <- open
+  comments <- takeCommentsBefore (getLoc lp)
+  x <- located nixExpr
+  rp <- close
+  let l = getLoc lp `combineSrcSpans` getLoc rp
+      common = AnnCommon (NodeComments comments []) (AnnSpan l)
+  ann <- attachCommentsBeforeAnchor (getLoc rp) $ AnnParNode common (parsedAnnToken AnnOpenP (getLoc lp)) (parsedAnnToken AnnCloseP (getLoc rp))
+  pure $ NixPar ann x
   where
     open = located (symbol' "(" <* updateLoc) <* ws
     close = located (symbol' ")" <* updateLoc) <* ws
@@ -481,13 +492,18 @@ nixBinding = inherit <|> normal
 --------------------------------------------------------------------------------
 
 nixSet :: Parser (NixExpr Ps)
-nixSet =
-  locatedC ((,,,) <$> kw <*> open <*> bindings <*> close) >>= \(L l (a, b, c, d)) -> do
-    common <- mkAnnCommon l
-    ann <-
-      attachCommentsBeforeAnchor (getLoc d) $
-        AnnSet common (parsedAnnToken AnnRec . getLoc <$> a) (parsedAnnToken AnnOpenC (getLoc b)) (parsedAnnToken AnnCloseC (getLoc d))
-    pure $ NixSet ann (maybe NixSetNonRecursive (const NixSetRecursive) a) c
+nixSet = do
+  a <- kw
+  b <- open
+  comments <- takeCommentsBefore (maybe (getLoc b) getLoc a)
+  c <- bindings
+  d <- close
+  let l = maybe (getLoc b) getLoc a `combineSrcSpans` getLoc d
+      common = AnnCommon (NodeComments comments []) (AnnSpan l)
+  ann <-
+    attachCommentsBeforeAnchor (getLoc d) $
+      AnnSet common (parsedAnnToken AnnRec . getLoc <$> a) (parsedAnnToken AnnOpenC (getLoc b)) (parsedAnnToken AnnCloseC (getLoc d))
+  pure $ NixSet ann (maybe NixSetNonRecursive (const NixSetRecursive) a) c
   where
     kw = optional $ reservedKw "rec"
     open = located (symbol' "{" <* updateLoc) <* ws
@@ -612,11 +628,15 @@ nixLam = try $ do
 --------------------------------------------------------------------------------
 
 nixList :: Parser (NixExpr Ps)
-nixList =
-  locatedC ((,,) <$> open <*> many (located nixTerm) <*> close) >>= \(L l (ls, xs, rs)) -> do
-    common <- mkAnnCommon l
-    ann <- attachCommentsBeforeAnchor (getLoc rs) $ AnnListNode common (parsedAnnToken AnnOpenS (getLoc ls)) (parsedAnnToken AnnCloseS (getLoc rs))
-    pure $ NixList ann xs
+nixList = do
+  ls <- open
+  comments <- takeCommentsBefore (getLoc ls)
+  xs <- many (located nixTerm)
+  rs <- close
+  let l = getLoc ls `combineSrcSpans` getLoc rs
+      common = AnnCommon (NodeComments comments []) (AnnSpan l)
+  ann <- attachCommentsBeforeAnchor (getLoc rs) $ AnnListNode common (parsedAnnToken AnnOpenS (getLoc ls)) (parsedAnnToken AnnCloseS (getLoc rs))
+  pure $ NixList ann xs
   where
     open = located (symbol' "[" <* updateLoc) <* ws
     close = located (symbol' "]" <* updateLoc) <* ws
@@ -624,56 +644,74 @@ nixList =
 --------------------------------------------------------------------------------
 
 nixIf :: Parser (NixExpr Ps)
-nixIf =
-  body >>= \(L l (kif, op, kth, e1, kel, e2)) -> do
-    common <- mkAnnCommon l
-    let ann = AnnIfNode common (parsedAnnToken AnnIf (getLoc kif)) (parsedAnnToken AnnThen (getLoc kth)) (parsedAnnToken AnnElse (getLoc kel))
-    pure $ NixIf ann op e1 e2
+nixIf = do
+  kif <- kwIf
+  comments <- takeCommentsBefore (getLoc kif)
+  op <- located nixExpr
+  kth <- kwThen
+  e1 <- located nixExpr
+  kel <- kwElse
+  e2 <- located nixExpr
+  let l = getLoc kif `combineSrcSpans` getLoc e2
+      common = AnnCommon (NodeComments comments []) (AnnSpan l)
+      ann = AnnIfNode common (parsedAnnToken AnnIf (getLoc kif)) (parsedAnnToken AnnThen (getLoc kth)) (parsedAnnToken AnnElse (getLoc kel))
+  pure $ NixIf ann op e1 e2
   where
     kwIf = reservedKw "if"
     kwThen = reservedKw "then"
     kwElse = reservedKw "else"
-    body = located $ (,,,,,) <$> kwIf <*> located nixExpr <*> kwThen <*> located nixExpr <*> kwElse <*> located nixExpr
 
 --------------------------------------------------------------------------------
 
 nixWith :: Parser (NixExpr Ps)
-nixWith =
-  body >>= \(L l (kwi, e1, semicolon, e2)) -> do
-    common <- mkAnnCommon l
-    let ann = AnnWithNode common (parsedAnnToken AnnWith (getLoc kwi)) (parsedAnnToken AnnSemicolon (getLoc semicolon))
-    pure $ NixWith ann e1 e2
+nixWith = do
+  kwi <- kw
+  comments <- takeCommentsBefore (getLoc kwi)
+  e1 <- located nixExpr
+  semicolon <- sem
+  e2 <- located nixExpr
+  let l = getLoc kwi `combineSrcSpans` getLoc e2
+      common = AnnCommon (NodeComments comments []) (AnnSpan l)
+      ann = AnnWithNode common (parsedAnnToken AnnWith (getLoc kwi)) (parsedAnnToken AnnSemicolon (getLoc semicolon))
+  pure $ NixWith ann e1 e2
   where
     kw = reservedKw "with"
     sem = located $ symbol ";"
-    body = located $ (,,,) <$> kw <*> located nixExpr <*> sem <*> located nixExpr
 
 --------------------------------------------------------------------------------
 
 nixAssert :: Parser (NixExpr Ps)
-nixAssert =
-  body >>= \(L l (kas, e1, semicolon, e2)) -> do
-    common <- mkAnnCommon l
-    let ann = AnnAssertNode common (parsedAnnToken AnnAssert (getLoc kas)) (parsedAnnToken AnnSemicolon (getLoc semicolon))
-    pure $ NixAssert ann e1 e2
+nixAssert = do
+  kas <- ka
+  comments <- takeCommentsBefore (getLoc kas)
+  e1 <- located nixExpr
+  semicolon <- sem
+  e2 <- located nixExpr
+  let l = getLoc kas `combineSrcSpans` getLoc e2
+      common = AnnCommon (NodeComments comments []) (AnnSpan l)
+      ann = AnnAssertNode common (parsedAnnToken AnnAssert (getLoc kas)) (parsedAnnToken AnnSemicolon (getLoc semicolon))
+  pure $ NixAssert ann e1 e2
   where
     ka = reservedKw "assert"
     sem = located $ symbol ";"
-    body = located $ (,,,) <$> ka <*> located nixExpr <*> sem <*> located nixExpr
 
 --------------------------------------------------------------------------------
 
 nixLet :: Parser (NixExpr Ps)
-nixLet =
-  body >>= \(L l (kl, bs, ki, e)) -> do
-    common <- mkAnnCommon l
-    let ann = AnnLetNode common (parsedAnnToken AnnLet (getLoc kl)) (parsedAnnToken AnnIn (getLoc ki))
-    pure $ NixLet ann bs e
+nixLet = do
+  kl <- kLet
+  comments <- takeCommentsBefore (getLoc kl)
+  bs <- bindings
+  ki <- kIn
+  e <- located nixExpr
+  let l = getLoc kl `combineSrcSpans` getLoc e
+      common = AnnCommon (NodeComments comments []) (AnnSpan l)
+      ann = AnnLetNode common (parsedAnnToken AnnLet (getLoc kl)) (parsedAnnToken AnnIn (getLoc ki))
+  pure $ NixLet ann bs e
   where
     kLet = reservedKw "let"
     kIn = reservedKw "in"
     bindings = located $ many $ located nixBinding
-    body = located $ (,,,) <$> kLet <*> bindings <*> kIn <*> located nixExpr
 
 --------------------------------------------------------------------------------
 

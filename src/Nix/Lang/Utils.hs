@@ -1,6 +1,9 @@
+-- | Miscellaneous shared helpers for spans, tokens, and small AST utilities.
+--
+-- This is package plumbing: span math, token text, and a few small helpers that
+-- get reused across parsing, exact printing, and editing.
 module Nix.Lang.Utils where
 
-import Data.Char (isAlpha, isDigit)
 import Data.Maybe (fromJust)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -122,18 +125,3 @@ showBinOP = fromJust . showToken . opToToken
 -- "++*/+-//<<=>>===!=&&||->"
 opString :: String
 opString = T.unpack . T.concat $ showBinOP <$> [OpConcat ..]
-
-reservedNames :: [Text]
-reservedNames = ["rec", "let", "in", "with", "inherit", "assert", "if", "then", "else"]
-
-isIdentChar :: Char -> Bool
-isIdentChar x = isAlpha x || isDigit x || x `elem` ['-', '_', '\'']
-
-isPathChar :: Char -> Bool
-isPathChar x = isAlpha x || isDigit x || x `elem` ['.', '_', '-', '+', '~']
-
-isSchemeChar :: Char -> Bool
-isSchemeChar x = isAlpha x || isDigit x || x `elem` ['+', '-', '.']
-
-isUriChar :: Char -> Bool
-isUriChar x = isAlpha x || isDigit x || x `elem` ['~', '!', '@', '$', '%', '&', '*', '-', '=', '_', '+', ':', ',', '.', '/', '?']

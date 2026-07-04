@@ -1,5 +1,20 @@
 {-# LANGUAGE TemplateHaskell #-}
 
+-- | Quasiquoter for embedding Nix syntax in Haskell code.
+--
+-- 'nixQQ' is the convenient way to keep small Nix snippets inline in Haskell
+-- code, especially in tests. It parses at compile time, so broken snippets fail
+-- where they are written rather than later at runtime.
+--
+-- Example:
+--
+-- @
+-- {-# LANGUAGE QuasiQuotes #-}
+--
+-- import Nix.Lang.QQ (nixQQ)
+--
+-- expr = [nixQQ| let x = 1; in x |]
+-- @
 module Nix.Lang.QQ (nixQQ) where
 
 import Data.Char (isSpace)

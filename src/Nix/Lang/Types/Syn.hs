@@ -1,6 +1,23 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 
-module Nix.Lang.Types.Base
+-- | Fresh syntax-tree specialization with smart constructors.
+--
+-- This is the AST you reach for when you are building Nix code yourself rather
+-- than recovering it from an existing file.
+--
+-- It gives you the concrete type aliases for the annotation-free pass together
+-- with smart constructors such as 'mkVar', 'mkApp', and 'mkSet'. These trees are
+-- the natural input to 'Nix.Lang.RFCPrint'.
+--
+-- Example construction:
+--
+-- @
+-- import Nix.Lang.Types.Syn (Expr, mkLet, mkNormalBinding, mkVar)
+--
+-- expr :: Expr
+-- expr = mkLet [mkNormalBinding (mkVar "x") (mkVar "y")] (mkVar "x")
+-- @
+module Nix.Lang.Types.Syn
   ( Syn,
     Expr,
     Binding,
@@ -78,13 +95,15 @@ module Nix.Lang.Types.Base
     mkVarPat,
     mkSetPat,
     mkSetPatBinding,
-    mkSetPatAs
-  ) where
+    mkSetPatAs,
+  )
+where
 
 import Data.Data (Data)
 import Data.Text (Text)
 import Nix.Lang.Types
 
+-- | Syntax (or synthetic) pass
 data Syn deriving (Data)
 
 type instance XRec Syn a = a

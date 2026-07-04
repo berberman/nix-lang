@@ -6,9 +6,10 @@ import qualified ExactPrint
 import Nix.Lang.Edit
 import Nix.Lang.ExactPrint
 import Nix.Lang.QQ
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Nix.Lang.Utils
 import qualified Parser
+import qualified RFCPrint
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -21,6 +22,7 @@ tests =
     "nix-lang"
     [ Parser.tests,
       ExactPrint.tests,
+      RFCPrint.tests,
       testGroup
         "edit"
         [ testCase "editExpr supports nested selector updates" editExprNestedSelectorUpdate,

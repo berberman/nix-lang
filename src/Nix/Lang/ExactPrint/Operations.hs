@@ -1,6 +1,9 @@
 -- | Low-level cursor, span, and token operations for exact printing.
 --
--- This module is the bottom of the exact-print stack. It knows how to:
+-- This is the low-level geometry layer under the exact printer: cursor movement,
+-- token spans, whitespace gaps, and token retagging after subtree repair.
+--
+-- It knows how to:
 --
 -- * render gaps between already-anchored spans,
 -- * recover structural spans from annotated nodes,
@@ -47,7 +50,7 @@ import qualified Data.Text as T
 import Nix.Lang.Annotation
 import Nix.Lang.Span
 import Nix.Lang.Types
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Nix.Lang.Utils
 import Prettyprinter (Doc, pretty)
 

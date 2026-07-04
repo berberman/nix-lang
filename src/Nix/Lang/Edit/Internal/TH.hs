@@ -1,3 +1,5 @@
+-- | Template Haskell used to generate the selector combinators exported by
+-- 'Nix.Lang.Edit'.
 module Nix.Lang.Edit.Internal.TH
   ( RequiredSelectorSpec (..),
     OptionalSelectorSpec (..),

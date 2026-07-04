@@ -1,23 +1,24 @@
 module Parser where
 
+import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Nix.Lang.Annotation
 import Nix.Lang.Parser
 import Nix.Lang.Span
 import Nix.Lang.Types
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
+import Nix.Lang.Utils
 import Test.Tasty
 import Test.Tasty.HUnit
-import Text.Megaparsec (errorBundlePretty, MonadParsec (eof))
+import Text.Megaparsec (MonadParsec (eof), errorBundlePretty)
 import Utils
-import qualified Data.Text as T
-import Nix.Lang.Utils
 
 tests :: TestTree
 tests =
   testGroup
     "parser"
     [ testCase "sample fixture parses" sampleFixtureParses,
+      referenceParserFixtureTests,
       testGroup
         "literals and atoms"
         [ testCase "integer literal" integerLiteralParses,
@@ -416,3 +417,79 @@ multiHasAttrRejected = parseExprFails "a ? b ? c ? d"
 
 operatorWithoutWhitespaceRejected :: Assertion
 operatorWithoutWhitespaceRejected = parseExprFails "1+-1"
+
+referenceParserFixtureTests :: TestTree
+referenceParserFixtureTests =
+  testGroup
+    "reference parser fixtures"
+    [ testGroup "valid parse" (fixtureParseCases <$> validFixtures),
+      testGroup "invalid parse" (fixtureRejectCases <$> invalidFixtures),
+      testGroup "known divergence" (fixtureAcceptedCases <$> acceptedInvalidFixtures)
+    ]
+
+fixtureParseCases :: FilePath -> TestTree
+fixtureParseCases relPath =
+  testCase relPath $ do
+    src <- T.readFile fullPath
+    case runNixParser nixFile fullPath src of
+      (Right _, _) -> pure ()
+      (Left err, _) -> assertFailure $ errorBundlePretty err
+  where
+    fullPath = fixtureRoot <> "/" <> relPath
+
+fixtureRejectCases :: FilePath -> TestTree
+fixtureRejectCases relPath =
+  testCase relPath $ do
+    src <- T.readFile fullPath
+    parseFileFails fullPath src
+  where
+    fullPath = fixtureRoot <> "/" <> relPath
+
+fixtureAcceptedCases :: FilePath -> TestTree
+fixtureAcceptedCases relPath =
+  testCase relPath $ do
+    src <- T.readFile fullPath
+    case runNixParser nixFile fullPath src of
+      (Right _, _) -> pure ()
+      (Left err, _) -> assertFailure $ errorBundlePretty err
+  where
+    fullPath = fixtureRoot <> "/" <> relPath
+
+fixtureRoot :: FilePath
+fixtureRoot = "test/fixtures/nixfmt"
+
+validFixtures :: [FilePath]
+validFixtures =
+  [ "correct/standalone-comments.nix",
+    "correct/blank-line-in-interpolation.nix",
+    "correct/indented-string.nix",
+    "correct/string-with-single-quote-at-end.nix",
+    "correct/paths-with-interpolations.nix",
+    "correct/quotes-in-inherit.nix",
+    "correct/if-with-comments.nix",
+    "correct/commented-list.nix",
+    "correct/commented-params-list.nix",
+    "correct/final-comments-in-sets.nix",
+    "diff/comment/in.nix",
+    "diff/string/in.nix",
+    "diff/string_interpol/in.nix",
+    "diff/leading_blank/in.nix",
+    "diff/inherit_comment/in.nix",
+    "diff/strip_space/in.nix"
+  ]
+
+invalidFixtures :: [FilePath]
+invalidFixtures =
+  [ "invalid/naked-interpolation.nix",
+    "invalid/path-starting-with-interpolation.nix",
+    "invalid/path-with-interpolation-before-slash.nix",
+    "invalid/path-with-escaped-interpolation.nix",
+    "invalid/interpolation-in-env-path.nix",
+    "invalid/smiley.nix"
+  ]
+
+acceptedInvalidFixtures :: [FilePath]
+acceptedInvalidFixtures =
+  [ "invalid/interpolation-in-inherit-1.nix",
+    "invalid/interpolation-in-inherit-2.nix"
+  ]

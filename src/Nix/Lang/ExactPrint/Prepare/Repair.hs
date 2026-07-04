@@ -1,9 +1,8 @@
--- | Internal recursive repair engine for exact-print normalization.
+-- | Recursive repair engine for exact-print normalization.
 --
--- This module owns the transition from structurally modified subtrees to
--- exact-print-ready nodes by recursively repairing spans and token-relative
--- annotations.
-module Nix.Lang.ExactPrint.Internal.Repair
+-- After an edit changes tree shape, this module recalculates spans, token
+-- deltas, and related annotations so the tree can be rendered again.
+module Nix.Lang.ExactPrint.Prepare.Repair
   ( repairExprLayout,
     repairBindingLayout,
     repairAttrPathLayout,
@@ -16,14 +15,14 @@ import Control.Monad.Reader (ReaderT (..), ask, local, runReaderT)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Nix.Lang.Annotation
-import Nix.Lang.ExactPrint.Internal.Rebuild
-import Nix.Lang.ExactPrint.Internal.Types
-import Nix.Lang.ExactPrint.Internal.Utils
+import Nix.Lang.ExactPrint.Prepare.Rebuild
+import Nix.Lang.ExactPrint.Prepare.Types
+import Nix.Lang.ExactPrint.Prepare.Utils
 import Nix.Lang.ExactPrint.Operations
 import Nix.Lang.Outputable (renderToText)
 import Nix.Lang.Span
 import Nix.Lang.Types
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Nix.Lang.Utils
 
 --------------------------------------------------------------------------------

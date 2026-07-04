@@ -3,6 +3,10 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- | Core Trees-that-Grow Nix AST definitions.
+--
+-- This is the shared TTG definition that both syntax passes instantiate:
+-- parser-produced trees with annotations, and fresh trees built for formatting.
 module Nix.Lang.Types where
 
 import Data.Data (Data)

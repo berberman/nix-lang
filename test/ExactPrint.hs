@@ -84,7 +84,8 @@ tests =
           testCase "exact print preserves multiline set layout" exactPrintPreservesMultilineSetLayout,
           testCase "exact print preserves multiline let layout" exactPrintPreservesMultilineLetLayout,
           testCase "exact print preserves multiline if layout" exactPrintPreservesMultilineIfLayout
-        ]
+        ],
+      referenceExactPrintFixtureTests
     ]
 
 assertExactPrintRoundtripExpr :: T.Text -> Assertion
@@ -503,3 +504,33 @@ exactPrintPreservesMultilineIfLayout = do
   case runNixParser nixFile "<if>" "if\n  a\nthen\n  b\nelse\n  c" of
     (Right expr, _) -> renderExactText expr @?= "if\n  a\nthen\n  b\nelse\n  c"
     (Left err, _) -> assertFailure $ errorBundlePretty err
+
+referenceExactPrintFixtureTests :: TestTree
+referenceExactPrintFixtureTests =
+  testGroup
+    "reference exact-print fixtures"
+    [ testGroup "roundtrip" (fixtureRoundtripCase <$> roundtripFixtures)
+    ]
+
+fixtureRoundtripCase :: FilePath -> TestTree
+fixtureRoundtripCase relPath =
+  testCase relPath $ do
+    src <- T.readFile fullPath
+    assertExactPrintRoundtripFile fullPath (dropTrailingNewline src)
+  where
+    fullPath = fixtureRoot <> "/" <> relPath
+
+fixtureRoot :: FilePath
+fixtureRoot = "test/fixtures/nixfmt"
+
+roundtripFixtures :: [FilePath]
+roundtripFixtures =
+  [ "correct/string-with-single-quote-at-end.nix",
+    "correct/paths-with-interpolations.nix",
+    "correct/quotes-in-inherit.nix",
+    "correct/blank-line-in-interpolation.nix",
+    "correct/indented-string.nix"
+  ]
+
+dropTrailingNewline :: T.Text -> T.Text
+dropTrailingNewline text = maybe text id (T.stripSuffix "\n" text)

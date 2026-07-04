@@ -1,6 +1,10 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 
+-- | Source span and located-value types.
+--
+-- These are the location wrappers used throughout the parsed and exact-printing
+-- parts of the library.
 module Nix.Lang.Span where
 
 import Data.Data (Data)

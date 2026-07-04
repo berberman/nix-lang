@@ -1,12 +1,15 @@
+-- | Basic pretty-printing for Nix AST values.
+--
+-- This is the simple renderer shared across the AST. It does not try to preserve
+-- parsed layout, and it is less opinionated than 'Nix.Lang.RFCPrint'.
 module Nix.Lang.Outputable where
 
 import Data.Data (Proxy (..))
 import Data.Text (Text)
-import qualified Data.Text as T
-import Nix.Lang.Parser (escapedChars)
+import Nix.Lang.Lexer.Text
 import Nix.Lang.Types
-import Nix.Lang.Types.Base (Syn)
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
+import Nix.Lang.Types.Syn (Syn)
 import Nix.Lang.Utils
 import Prettyprinter
 import Prettyprinter.Render.Text (renderStrict)
@@ -178,12 +181,10 @@ instance (OutputableNames p, UnXRec p) => Outputable (NixString p) where
 
       go (NixDoubleQuotesString _ parts) = dquotes $ outputParts $ fmap (unwrapStringPart proxy) parts
         where
-          outputParts = mconcat . fmap (outputStringPart proxy escape)
-          escape = foldr (.) id [T.replace (T.singleton char) (T.cons '\\' (T.singleton code)) | (code, char) <- escapedChars]
+          outputParts = mconcat . fmap (outputStringPart proxy escapeDoubleQuotedText)
       go (NixDoubleSingleQuotesString _ parts) = vcat ["''", nest 2 $ outputParts $ fmap (unwrapStringPart proxy) parts, "''"]
         where
-          outputParts = mconcat . fmap (outputStringPart proxy escape)
-          escape = foldr (.) id [T.replace "${" "''${", T.replace "''" "'''"]
+          outputParts = mconcat . fmap (outputStringPart proxy escapeIndentedText)
       go (XNixString _) = extErr
 
 instance (OutputableNames p, UnXRec p) => Outputable (NixAttrKey p) where
@@ -192,9 +193,7 @@ instance (OutputableNames p, UnXRec p) => Outputable (NixAttrKey p) where
       proxy = Proxy @p
 
       go (NixStaticAttrKey _ x) = outputAttrName proxy (unwrapAttrName proxy x)
-      go (NixDynamicStringAttrKey _ parts) = dquotes $ mconcat $ outputStringPart proxy escape . unwrapStringPart proxy <$> parts
-        where
-          escape = foldr (.) id [T.replace (T.singleton char) (T.cons '\\' (T.singleton code)) | (code, char) <- escapedChars]
+      go (NixDynamicStringAttrKey _ parts) = dquotes $ mconcat $ outputStringPart proxy escapeDoubleQuotedText . unwrapStringPart proxy <$> parts
       go (NixDynamicInterpolAttrKey _ expr) = "${" <> outputExprX proxy expr <> "}"
       go (XNixNixAttrKey _) = extErr
 

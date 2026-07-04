@@ -1,6 +1,16 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 
-module Nix.Lang.Types.Parsed where
+-- | Annotated AST specialization used by the parser and exact printer.
+--
+-- This is the parsed form of the tree: every node is wrapped in location and
+-- annotation data that records where it came from and how it should be rendered
+-- back out.
+--
+-- It is the tree shape shared by 'Nix.Lang.Parser', 'Nix.Lang.ExactPrint', and
+-- 'Nix.Lang.Edit'. If you are constructing Nix syntax from scratch instead,
+-- prefer 'Nix.Lang.Types.Syn'.
+--
+module Nix.Lang.Types.Ps where
 
 import Data.Data (Data)
 import Data.Text (Text)
@@ -8,6 +18,7 @@ import Nix.Lang.Annotation
 import Nix.Lang.Span (Located (..))
 import Nix.Lang.Types
 
+-- | Parser pass
 data Ps deriving (Data)
 
 type instance XRec Ps a = Located a

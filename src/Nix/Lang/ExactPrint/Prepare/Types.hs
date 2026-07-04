@@ -1,5 +1,5 @@
--- | Shared types for internal exact-print preparation operations.
-module Nix.Lang.ExactPrint.Internal.Types
+-- | Result and error types used while preparing edited trees for exact printing.
+module Nix.Lang.ExactPrint.Prepare.Types
   ( EPResult,
     EPError (..),
     BindingInsertPosition (..),

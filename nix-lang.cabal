@@ -57,6 +57,7 @@ common common-attrs
 library
   import:          common-attrs
   build-depends:
+    , containers
     , megaparsec
     , mtl
     , parser-combinators
@@ -70,20 +71,23 @@ library
     Nix.Lang.Edit
     Nix.Lang.Edit.Internal.TH
     Nix.Lang.ExactPrint
-    Nix.Lang.ExactPrint.Internal.Parse
-    Nix.Lang.ExactPrint.Internal.Rebuild
-    Nix.Lang.ExactPrint.Internal.Reflow
-    Nix.Lang.ExactPrint.Internal.Repair
-    Nix.Lang.ExactPrint.Internal.Types
-    Nix.Lang.ExactPrint.Internal.Utils
     Nix.Lang.ExactPrint.Operations
+    Nix.Lang.ExactPrint.Prepare.Parse
+    Nix.Lang.ExactPrint.Prepare.Rebuild
+    Nix.Lang.ExactPrint.Prepare.Reflow
+    Nix.Lang.ExactPrint.Prepare.Repair
+    Nix.Lang.ExactPrint.Prepare.Types
+    Nix.Lang.ExactPrint.Prepare.Utils
+    Nix.Lang.Lexer.Text
     Nix.Lang.Outputable
     Nix.Lang.Parser
     Nix.Lang.QQ
+    Nix.Lang.RFCPrint
+    Nix.Lang.RFCPrint.LayoutHints
     Nix.Lang.Span
     Nix.Lang.Types
-    Nix.Lang.Types.Base
-    Nix.Lang.Types.Parsed
+    Nix.Lang.Types.Ps
+    Nix.Lang.Types.Syn
     Nix.Lang.Utils
 
   hs-source-dirs:  src
@@ -94,6 +98,7 @@ test-suite nix-lang-test
   build-depends:
     , megaparsec
     , nix-lang
+    , process
     , syb
     , tasty
     , tasty-hunit
@@ -102,6 +107,7 @@ test-suite nix-lang-test
   other-modules:
     ExactPrint
     Parser
+    RFCPrint
     Utils
 
   hs-source-dirs: test

@@ -1,5 +1,5 @@
--- | Run parser on standalone AST fragments for internal exact-print preparation.
-module Nix.Lang.ExactPrint.Internal.Parse
+-- | Parse replacement fragments for the exact-print repair pipeline.
+module Nix.Lang.ExactPrint.Prepare.Parse
   ( parseExpr,
     parseBinding,
     parseAttrKey,
@@ -8,10 +8,10 @@ where
 
 import Data.Text (Text)
 import qualified Data.Text as T
-import Nix.Lang.ExactPrint.Internal.Types
+import Nix.Lang.ExactPrint.Prepare.Types
 import Nix.Lang.Parser (Parser, attrKey, located, nixBinding, nixExpr, runNixParser)
 import Nix.Lang.Span
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Text.Megaparsec (eof, errorBundlePretty)
 
 -- | Parse a standalone expression fragment.

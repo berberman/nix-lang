@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 
--- | Shared span, cursor, and translation helpers for internal exact-print preparation.
-module Nix.Lang.ExactPrint.Internal.Utils
+-- | Shared span, cursor, and translation helpers for exact-print preparation.
+module Nix.Lang.ExactPrint.Prepare.Utils
   ( bindingSpan,
     bindingRenderSpan,
     bindingComments,
@@ -39,7 +39,7 @@ import Nix.Lang.Annotation
 import Nix.Lang.ExactPrint.Operations
 import Nix.Lang.Span
 import Nix.Lang.Types
-import Nix.Lang.Types.Parsed
+import Nix.Lang.Types.Ps
 import Nix.Lang.Utils
 
 --------------------------------------------------------------------------------

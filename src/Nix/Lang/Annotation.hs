@@ -1,6 +1,10 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 
 -- | Annotation and exact-print support types for the parsed Nix AST.
+--
+-- These types record token spans, token deltas, and comment ownership for the
+-- parsed pass. Exact printing and edit repair both work by preserving or
+-- rebuilding this information.
 module Nix.Lang.Annotation where
 
 import Data.Data (Data)
