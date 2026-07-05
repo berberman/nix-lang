@@ -34,7 +34,9 @@
         haskellPackages = prev.haskellPackages.override (old: {
           overrides = final.lib.composeExtensions (old.overrides or (_: _: { })) (
             hself: hsuper: {
-              nix-lang = prev.haskellPackages.callCabal2nix "nix-lang" ./. { };
+              nix-lang = final.haskell.lib.addTestToolDepends (prev.haskellPackages.callCabal2nix "nix-lang" ./.
+                { }
+              ) [ final.nixfmt ];
             }
           );
         });
