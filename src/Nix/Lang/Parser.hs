@@ -856,7 +856,7 @@ opTable =
     [infixN OpEq, infixN OpNEq],
     [infixL OpAnd],
     [infixL OpOr],
-    [infixL OpImpl]
+    [infixR OpImpl]
   ]
   where
     infixL = infixOp InfixL

@@ -1,6 +1,6 @@
 {-# LANGUAGE EmptyCase #-}
 
--- | RFC-style formatter for fresh syntax trees.
+-- | RFC 166-oriented formatter for fresh syntax trees.
 --
 -- This formatter is for fresh syntax trees: values you constructed yourself,
 -- lowered from another representation, or otherwise do not want to exact-print.
@@ -47,10 +47,22 @@ childPath :: NodePath -> Int -> NodePath
 childPath = childNodePath
 
 chooseLayout :: FormatEnv -> NodePath -> ContainerLayout -> ContainerLayout
-chooseLayout env path fallback =
-  maybe fallback resolve (lookupLayoutHint path (feLayoutHints env))
+chooseLayout env path defaultLayout =
+  maybe defaultLayout resolve (lookupLayoutHint path (feLayoutHints env))
   where
-    resolve hint = maybe fallback id (lhContainerLayout hint)
+    resolve layoutHint = maybe defaultLayout id (lhContainerLayout layoutHint)
+
+lookupTrivia :: FormatEnv -> NodePath -> ([CanonicalTrivia], [CanonicalTrivia])
+lookupTrivia env path =
+  case lookupLayoutHint path (feLayoutHints env) of
+    Just hint -> (lhPriorTrivia hint, lhFollowingTrivia hint)
+    Nothing -> ([], [])
+
+formatInterpolation :: FormatEnv -> NodePath -> Expr -> Doc ann
+formatInterpolation env path expr = "${" <> formatTop env path expr <> "}"
+
+forceMultilineEnv :: FormatEnv -> NodePath -> FormatEnv
+forceMultilineEnv env path = env {feLayoutHints = forceMultilineHint path (feLayoutHints env)}
 
 formatExpr :: Expr -> Text
 formatExpr = formatExprWithHints emptyLayoutHints
@@ -62,10 +74,14 @@ formatDoc :: Expr -> Doc ann
 formatDoc = formatDocWithHints emptyLayoutHints
 
 formatDocWithHints :: LayoutHints -> Expr -> Doc ann
-formatDocWithHints hints = formatTop (FormatEnv hints) rootPath
+formatDocWithHints hints expr =
+  let env = FormatEnv hints
+   in formatTop env rootPath expr
 
 formatTop :: FormatEnv -> NodePath -> Expr -> Doc ann
-formatTop env path = formatNode env path
+formatTop env path expr =
+  let (priorTrivia, followingTrivia) = lookupTrivia env path
+   in applyTrivia priorTrivia (formatNode env path expr) followingTrivia
 
 data Assoc
   = AssocLeft
@@ -136,15 +152,16 @@ opAssoc :: BinaryOp -> Assoc
 opAssoc = \case
   OpConcat -> AssocRight
   OpUpdate -> AssocRight
+  OpImpl -> AssocRight
   OpEq -> AssocNone
   OpNEq -> AssocNone
   _ -> AssocLeft
 
 formatChild :: FormatEnv -> NodePath -> Int -> Bool -> Expr -> Doc ann
-formatChild env path parentPrec allowSame expr =
-  parenthesize (childPrec < parentPrec || (childPrec == parentPrec && not allowSame)) (formatNode env path expr)
+formatChild env path parentPrec allowSamePrecedence expr =
+  parenthesize (childPrecedence < parentPrec || (childPrecedence == parentPrec && not allowSamePrecedence)) (formatNode env path expr)
   where
-    childPrec = exprPrec expr
+    childPrecedence = exprPrec expr
 
 formatPrefixChild :: FormatEnv -> NodePath -> Int -> Expr -> Doc ann
 formatPrefixChild env path parentPrec expr =
@@ -170,10 +187,10 @@ formatNode env path = \case
   NixEnvPath _ p -> "<" <> pretty p <> ">"
   NixLam _ pat@(NixVarPat _ _) expr -> group $ hang 2 (formatFuncPat env (childPath path 0) pat <> ":" <+> formatTop env (childPath path 1) expr)
   NixLam _ pat expr ->
-    case chooseLayout env path PreferMultiline of
+    case chooseLayout env path (defaultLambdaLayout pat) of
       PreferInline -> group $ hang 2 (formatFuncPat env (childPath path 0) pat <> ":" <+> formatTop env (childPath path 1) expr)
       PreferMultiline -> formatFuncPat env (childPath path 0) pat <> ":" <> hardline <> formatTop env (childPath path 1) expr
-  NixApp _ f x -> group $ hang 2 (formatChild env (childPath path 0) precApp True f <+> formatChild env (childPath path 1) precApp False x)
+  app@NixApp {} -> formatApp env path app
   NixBinApp _ op lhs rhs ->
     group $ hang 2 (formatBinaryLeftChild env (childPath path 0) op lhs <+> pretty (showBinOP op) <+> formatBinaryRightChild env (childPath path 1) op rhs)
   NixNotApp _ expr -> "!" <> formatPrefixChild env (childPath path 0) precNot expr
@@ -184,10 +201,15 @@ formatNode env path = \case
   NixHasAttr _ expr attrPath -> formatPrefixChild env (childPath path 0) precHasAttr expr <+> "?" <+> formatAttrPath env (childPath path 1) attrPath
   NixSelect _ expr attrPath mDefault ->
     formatPrefixChild env (childPath path 0) precSelect expr <> "." <> formatAttrPath env (childPath path 1) attrPath <> maybe mempty (formatSelectDefault env (childPath path 2)) mDefault
-  NixIf _ cond t f ->
-    group $ "if" <+> formatTop env (childPath path 0) cond <+> "then" <+> formatTop env (childPath path 1) t <+> "else" <+> formatTop env (childPath path 2) f
+  NixIf _ cond t f -> formatIf env path cond t f
   NixWith _ scope expr ->
-    group $ "with" <+> formatTop env (childPath path 0) scope <> ";" <+> formatTop env (childPath path 1) expr
+    case wantsForcedMultiline expr of
+      True ->
+        vsep
+          [ "with" <+> formatTop env (childPath path 0) scope <> ";",
+            formatForcedMultiline env (childPath path 1) expr
+          ]
+      False -> group $ "with" <+> formatTop env (childPath path 0) scope <> ";" <+> formatTop env (childPath path 1) expr
   NixAssert _ assertion expr ->
     "assert "
       <> formatTop env (childPath path 0) assertion
@@ -211,12 +233,12 @@ formatString env path = \case
 formatDoubleQuotedPart :: FormatEnv -> NodePath -> StringPart -> Doc ann
 formatDoubleQuotedPart env path = \case
   NixStringLiteral _ text -> pretty (escapeDoubleQuoted text)
-  NixStringInterpol _ expr -> "${" <> formatTop env path expr <> "}"
+  NixStringInterpol _ expr -> formatInterpolation env path expr
 
 formatIndentedPart :: FormatEnv -> NodePath -> StringPart -> Doc ann
 formatIndentedPart env path = \case
   NixStringLiteral _ text -> pretty (escapeIndentedText text)
-  NixStringInterpol _ expr -> "${" <> formatTop env path expr <> "}"
+  NixStringInterpol _ expr -> formatInterpolation env path expr
 
 formatPath :: FormatEnv -> NodePath -> Path -> Doc ann
 formatPath env path = \case
@@ -226,26 +248,48 @@ formatPath env path = \case
 formatPathPart :: FormatEnv -> NodePath -> StringPart -> Doc ann
 formatPathPart env path = \case
   NixStringLiteral _ text -> pretty text
-  NixStringInterpol _ expr -> "${" <> formatTop env path expr <> "}"
+  NixStringInterpol _ expr -> formatInterpolation env path expr
 
 formatAttrKey :: FormatEnv -> NodePath -> AttrKey -> Doc ann
 formatAttrKey env path = \case
   NixStaticAttrKey _ name -> pretty name
   NixDynamicStringAttrKey _ parts -> dquotes $ mconcat (zipWith (formatDoubleQuotedPart env . childPath path) [0 ..] parts)
-  NixDynamicInterpolAttrKey _ expr -> "${" <> formatTop env path expr <> "}"
+  NixDynamicInterpolAttrKey _ expr -> formatInterpolation env path expr
 
 formatAttrPath :: FormatEnv -> NodePath -> AttrPath -> Doc ann
-formatAttrPath env path (NixAttrPath _ keys) = hcat $ punctuate "." (zipWith (formatAttrKey env . childPath path) [0 ..] keys)
+formatAttrPath env path (NixAttrPath _ keys) =
+  let (prior, following) = lookupTrivia env path
+      (_, prior') = splitLeadingBlankLine prior
+      body = hcat $ punctuate "." (zipWith (formatAttrKey env . childPath path) [0 ..] keys)
+   in applyTrivia prior' body following
 
 formatBinding :: FormatEnv -> NodePath -> Binding -> Doc ann
-formatBinding env path = \case
-  NixNormalBinding _ attrPath expr -> formatAttrPath env (childPath path 0) attrPath <+> "=" <+> formatTop env (childPath path 1) expr <> ";"
-  NixInheritBinding _ mScope names ->
-    let scopeDoc = maybe mempty (\scope -> " (" <> formatInheritScope env (childPath path 0) scope <> ")") mScope
-        namesDoc = case names of
-          [] -> mempty
-          xs -> " " <> fillSep (zipWith (formatAttrKey env . childPath path) [0 ..] xs)
-     in group ("inherit" <> scopeDoc <> namesDoc <> ";")
+formatBinding env path binding =
+  case binding of
+    NixNormalBinding _ attrPath expr ->
+      case wantsBindingValueMultiline expr of
+        True ->
+          formatAttrPath env (childPath path 0) attrPath
+            <+> "="
+            <> hardline
+            <> indent 2 (formatForcedMultiline env (childPath path 1) expr)
+            <> ";"
+        False -> formatAttrPath env (childPath path 0) attrPath <+> "=" <+> formatTop env (childPath path 1) expr <> ";"
+    NixInheritBinding _ mScope names ->
+      let (prior, following) = lookupTrivia env path
+          scopeDoc = maybe mempty (\scope -> " (" <> formatInheritScope env (childPath path 0) scope <> ")") mScope
+          keyDocs = zipWith (formatAttrKey env . childPath path) [0 ..] names
+          namesDoc = case names of
+            [] -> mempty
+            _ -> " " <> fillSep keyDocs
+          multiline =
+            vsep
+              [ "inherit" <> scopeDoc,
+                indent 2 (vsep keyDocs),
+                indent 2 ";"
+              ]
+          body = if length names >= 4 then multiline else group ("inherit" <> scopeDoc <> namesDoc <> ";")
+       in applyTrivia prior body following
 
 formatFuncPat :: FormatEnv -> NodePath -> FuncPat -> Doc ann
 formatFuncPat env path = \case
@@ -260,11 +304,19 @@ formatFuncPat env path = \case
       formatSetPatAsTrailing = maybe mempty formatSetPatAs mAs
       entries = zipWith (formatSetPatBinding env . childPath path) [0 ..] bindings <> ["..." | ellipses == NixSetPatIsEllipses]
       formatSetPatParams =
-        case chooseLayout env path PreferMultiline of
-          PreferInline -> if null entries then "{}" else encloseSep "{ " " }" ", " entries
+        case chooseLayout env path (defaultSetPatLayout ellipses bindings) of
+          PreferInline ->
+            case (ellipses, bindings) of
+              (NixSetPatNotEllipses, []) -> "{ }"
+              (NixSetPatIsEllipses, []) -> "{ ... }"
+              _ -> encloseSep "{ " " }" ", " entries
           PreferMultiline -> case entries of
-            [] -> "{}"
-            _ -> vsep (["{"] <> fmap (indent 2) (punctuate "," entries) <> ["}"])
+            [] -> "{ }"
+            _ ->
+              let bodyEntries = fmap (<> ",") (zipWith const entries bindings)
+                  ellipsisEntry = ["..." | ellipses == NixSetPatIsEllipses]
+               in vsep (["{"] <> fmap indentEntry (bodyEntries <> ellipsisEntry) <> ["}"])
+      indentEntry = indent 2
 
 formatSetPatAs :: SetPatAs -> Doc ann
 formatSetPatAs NixSetPatAs {..} = case nspaLocation of
@@ -274,12 +326,24 @@ formatSetPatAs NixSetPatAs {..} = case nspaLocation of
 formatSetPatBinding :: FormatEnv -> NodePath -> SetPatBinding -> Doc ann
 formatSetPatBinding env path NixSetPatBinding {..} = pretty nspbVar <> maybe mempty ((" ? " <>) . formatTop env (childPath path 0)) nspbDefault
 
+defaultLambdaLayout :: FuncPat -> ContainerLayout
+defaultLambdaLayout = \case
+  NixVarPat {} -> PreferInline
+  NixSetPat _ ellipses _ bindings -> defaultSetPatLayout ellipses bindings
+
+defaultSetPatLayout :: NixSetPatEllipses -> [SetPatBinding] -> ContainerLayout
+defaultSetPatLayout ellipses bindings =
+  case (ellipses, bindings) of
+    (NixSetPatNotEllipses, []) -> PreferInline
+    (NixSetPatIsEllipses, []) -> PreferInline
+    _ -> PreferMultiline
+
 formatSet :: FormatEnv -> NodePath -> NixSetIsRecursive -> [Binding] -> Doc ann
 formatSet env path recFlag bindings =
   case bindings of
     [] -> case recFlag of
-      NixSetRecursive -> "rec {}"
-      NixSetNonRecursive -> "{}"
+      NixSetRecursive -> "rec { }"
+      NixSetNonRecursive -> "{ }"
     _ -> case chooseLayout env path PreferMultiline of
       PreferInline -> single
       PreferMultiline -> multi
@@ -288,12 +352,29 @@ formatSet env path recFlag bindings =
       NixSetRecursive -> "rec "
       NixSetNonRecursive -> mempty
     single = prefix <> "{ " <> hsep (zipWith (formatBinding env . childPath path) [0 ..] bindings) <+> "}"
-    multi = vsep [prefix <> "{", indent 2 (vsep (zipWith (formatBinding env . childPath path) [0 ..] bindings)), "}"]
+    multi =
+      let bindingDocs = zipWith (formatBinding env . childPath path) [0 ..] bindings
+          renderedBindings = intercalateBindingDocs bindingDocs
+          openGap = if firstBindingHasLeadingBlankLine then [mempty] else []
+       in vsep ([prefix <> "{"] <> openGap <> renderedBindings <> ["}"])
+
+    firstBindingHasLeadingBlankLine =
+      case bindings of
+        firstBinding : _ -> bindingLeadingBlankLine env (childPath path 0) firstBinding
+        [] -> False
+
+    intercalateBindingDocs [] = []
+    intercalateBindingDocs [doc] = [indent 2 doc]
+    intercalateBindingDocs (doc : rest) = indent 2 doc : concatMap addBindingGap (zip [1 :: Int ..] rest)
+
+    addBindingGap (i, doc)
+      | bindingLeadingBlankLine env (childPath path i) (bindings !! i) = [mempty, indent 2 doc]
+      | otherwise = [indent 2 doc]
 
 formatLet :: FormatEnv -> NodePath -> [Binding] -> Expr -> Doc ann
 formatLet env path bindings expr =
   case bindings of
-    [] -> group ("let in" <+> formatTop env (childPath path 0) expr)
+    [] -> vsep ["let", "in", formatTop env (childPath path 0) expr]
     _ -> case chooseLayout env path PreferMultiline of
       PreferInline -> single
       PreferMultiline -> multi
@@ -304,10 +385,60 @@ formatLet env path bindings expr =
 formatInheritScope :: FormatEnv -> NodePath -> Expr -> Doc ann
 formatInheritScope env path = formatTop env path
 
+formatApp :: FormatEnv -> NodePath -> Expr -> Doc ann
+formatApp env path expr =
+  case collectAppChain expr of
+    [] -> mempty
+    f : args ->
+      let headDoc = formatAppHead env (childPath path 0) f
+          argDocs = zipWith (formatAppArg env . childPath path) [1 ..] args
+       in if any wantsForcedMultiline args
+            then foldl (<+>) headDoc argDocs
+            else group $ hang 2 (headDoc <+> hsep argDocs)
+
+collectAppChain :: Expr -> [Expr]
+collectAppChain = go []
+  where
+    go acc = \case
+      NixApp _ f x -> go (x : acc) f
+      other -> other : acc
+
+formatAppHead :: FormatEnv -> NodePath -> Expr -> Doc ann
+formatAppHead env path expr = formatChild env path precApp True expr
+
+formatAppArg :: FormatEnv -> NodePath -> Expr -> Doc ann
+formatAppArg env path expr =
+  case wantsForcedMultiline expr of
+    True -> parenthesizeForcedAppArg expr (formatForcedMultiline env path expr)
+    False -> formatChild env path precApp False expr
+
+parenthesizeForcedAppArg :: Expr -> Doc ann -> Doc ann
+parenthesizeForcedAppArg expr doc
+  | exprPrec expr <= precApp = vsep ["(", indent 2 doc, ")"]
+  | otherwise = doc
+
+formatForcedMultiline :: FormatEnv -> NodePath -> Expr -> Doc ann
+formatForcedMultiline env path expr =
+  case expr of
+    NixSet _ recFlag bindings -> formatSet (forceMultilineEnv env path) path recFlag bindings
+    NixLet _ bindings body -> formatLet (forceMultilineEnv env path) path bindings body
+    _ -> formatTop env path expr
+
+wantsForcedMultiline :: Expr -> Bool
+wantsForcedMultiline = \case
+  NixSet _ _ bindings -> not (null bindings)
+  NixLet _ bindings _ -> not (null bindings)
+  _ -> False
+
+wantsBindingValueMultiline :: Expr -> Bool
+wantsBindingValueMultiline = \case
+  NixLet _ bindings _ -> not (null bindings)
+  _ -> False
+
 formatBracketed :: FormatEnv -> NodePath -> Doc ann -> Doc ann -> [Doc ann] -> Doc ann
 formatBracketed env path open close docs =
   case docs of
-    [] -> open <> close
+    [] -> open <+> close
     _ -> case chooseLayout env path PreferMultiline of
       PreferInline -> single
       PreferMultiline -> multi
@@ -317,6 +448,34 @@ formatBracketed env path open close docs =
 
 formatSelectDefault :: FormatEnv -> NodePath -> Expr -> Doc ann
 formatSelectDefault env path expr = " or " <> parenthesize (needsKeywordParens expr) (formatTop env path expr)
+
+formatIf :: FormatEnv -> NodePath -> Expr -> Expr -> Expr -> Doc ann
+formatIf env path cond t f =
+  case f of
+    NixIf _ nestedCond nestedThen nestedElse ->
+      vsep
+        [ "if" <+> formatTop env (childPath path 0) cond <+> "then",
+          indent 2 (formatTop env (childPath path 1) t),
+          formatElseIf env (childPath path 2) nestedCond nestedThen nestedElse
+        ]
+    _ -> group $ "if" <+> formatTop env (childPath path 0) cond <+> "then" <+> formatTop env (childPath path 1) t <+> "else" <+> formatTop env (childPath path 2) f
+
+formatElseIf :: FormatEnv -> NodePath -> Expr -> Expr -> Expr -> Doc ann
+formatElseIf env path cond t f =
+  case f of
+    NixIf _ nestedCond nestedThen nestedElse ->
+      vsep
+        [ "else if" <+> formatTop env (childPath path 0) cond <+> "then",
+          indent 2 (formatTop env (childPath path 1) t),
+          formatElseIf env (childPath path 2) nestedCond nestedThen nestedElse
+        ]
+    _ ->
+      vsep
+        [ "else if" <+> formatTop env (childPath path 0) cond <+> "then",
+          indent 2 (formatTop env (childPath path 1) t),
+          "else",
+          indent 2 (formatTop env (childPath path 2) f)
+        ]
 
 needsKeywordParens :: Expr -> Bool
 needsKeywordParens = \case
@@ -332,6 +491,43 @@ parenthesize :: Bool -> Doc ann -> Doc ann
 parenthesize needs doc
   | needs = parens doc
   | otherwise = doc
+
+formatCanonicalTrivia :: CanonicalTrivia -> Doc ann
+formatCanonicalTrivia = \case
+  CanonicalLineComment txt -> "#" <> pretty txt
+  CanonicalBlockComment txt -> "/*" <> pretty txt <> "*/"
+  CanonicalBlankLine -> mempty
+
+applyTrivia :: [CanonicalTrivia] -> Doc ann -> [CanonicalTrivia] -> Doc ann
+applyTrivia prior body following = prepend prior (append following body)
+  where
+    prepend [] doc = doc
+    prepend (CanonicalBlankLine : ts) doc = hardline <> prepend ts doc
+    prepend (trivia : ts) doc = formatCanonicalTrivia trivia <> hardline <> prepend ts doc
+
+    append [] doc = doc
+    append (CanonicalBlankLine : ts) doc = doc <> hardline <> append ts mempty
+    append (trivia : ts) doc = doc <> hardline <> formatCanonicalTrivia trivia <> append ts mempty
+
+splitLeadingBlankLine :: [CanonicalTrivia] -> (Bool, [CanonicalTrivia])
+splitLeadingBlankLine (CanonicalBlankLine : xs) = (True, xs)
+splitLeadingBlankLine xs = (False, xs)
+
+bindingLeadingBlankLine :: FormatEnv -> NodePath -> Binding -> Bool
+bindingLeadingBlankLine env path = \case
+  NixNormalBinding _ _ _ ->
+    case lookupTrivia env (childPath path 0) of
+      (prior, _) -> fst (splitLeadingBlankLine prior)
+  NixInheritBinding _ _ _ ->
+    case lookupTrivia env path of
+      (prior, _) -> fst (splitLeadingBlankLine prior)
+
+forceMultilineHint :: NodePath -> LayoutHints -> LayoutHints
+forceMultilineHint path hints =
+  case lookupLayoutHint path hints of
+    Just hint ->
+      hints <> singletonLayoutHint path (LayoutHint (Just PreferMultiline) (lhPriorTrivia hint) (lhFollowingTrivia hint))
+    Nothing -> hints <> singletonLayoutHint path (LayoutHint (Just PreferMultiline) [] [])
 
 escapeDoubleQuoted :: Text -> Text
 escapeDoubleQuoted = go
