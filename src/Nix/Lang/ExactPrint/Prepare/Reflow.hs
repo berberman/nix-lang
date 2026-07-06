@@ -13,12 +13,12 @@ data Flow
 
 -- | Reanchor and advance a sequence of items from left to right.
 reflow :: Flow -> (a -> Text) -> (RenderCursor -> Located a -> Located a) -> RenderCursor -> [Located a] -> [Located a]
-reflow flow renderItem moveItem startCursor = snd . foldl step (startCursor, [])
+reflow flow renderItem moveItem startCursor = reverse . snd . foldl' step (startCursor, [])
   where
-    step (cursor, acc) item =
+    step (!cursor, acc) item =
       let moved = moveItem cursor item
           next = advanceItem flow renderItem cursor moved
-       in (next, acc <> [moved])
+       in (next, moved : acc)
 
 -- | Advance the cursor past one rebuilt item according to the chosen flow.
 advanceItem :: Flow -> (a -> Text) -> RenderCursor -> Located a -> RenderCursor

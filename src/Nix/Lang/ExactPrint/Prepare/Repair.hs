@@ -458,12 +458,12 @@ repairSetPatAsAt cursor (L _ asPat@NixSetPatAs {..}) =
    in pure (L span' asPat {nspaAnn = ann', nspaVar = var'})
 
 repairSetPatBindingsAt :: AnnSetPatNode -> RenderCursor -> [LSetPatBinding] -> RepairM [LSetPatBinding]
-repairSetPatBindingsAt ann startCursor bindings = snd <$> foldM step (startCursor, []) (zip [0 ..] bindings)
+repairSetPatBindingsAt ann startCursor bindings = reverse . snd <$> foldM step (startCursor, []) (zip [0 ..] bindings)
   where
-    step (cursor, repaired) (idx, binding) = do
+    step (!cursor, repaired) (idx, binding) = do
       binding' <- repairSetPatBindingAt ann idx cursor binding
       let next = advanceCursor (spanStartCursor (getLoc binding')) (renderToText (unLoc binding'))
-      pure (next, repaired <> [binding'])
+      pure (next, binding' : repaired)
 
 repairSetPatBindingAt :: AnnSetPatNode -> Int -> RenderCursor -> LSetPatBinding -> RepairM LSetPatBinding
 repairSetPatBindingAt _ _ cursor (L _ binding@NixSetPatBinding {..}) = do

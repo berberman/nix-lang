@@ -1,5 +1,7 @@
 module Parser where
 
+import Control.Monad (filterM)
+import qualified Data.List as List
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Nix.Lang.Annotation
@@ -8,9 +10,13 @@ import Nix.Lang.Span
 import Nix.Lang.Types
 import Nix.Lang.Types.Ps
 import Nix.Lang.Utils
+import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
+import System.Exit (ExitCode (ExitSuccess))
+import System.FilePath (makeRelative, takeExtension, (</>))
+import System.Process (readProcessWithExitCode)
 import Test.Tasty
 import Test.Tasty.HUnit
-import Text.Megaparsec (MonadParsec (eof), errorBundlePretty)
+import Text.Megaparsec (eof, errorBundlePretty)
 import Utils
 
 tests :: TestTree
@@ -18,6 +24,7 @@ tests =
   testGroup
     "parser"
     [ testCase "sample fixture parses" sampleFixtureParses,
+      nixpkgsCorpusParseTest,
       referenceParserFixtureTests,
       testGroup
         "literals and atoms"
@@ -90,6 +97,68 @@ sampleFixtureParses = do
   case runNixParser nixFile "test/sample.nix" src of
     (Right _, _) -> pure ()
     (Left err, _) -> assertFailure $ errorBundlePretty err
+
+nixpkgsCorpusParseTest :: TestTree
+nixpkgsCorpusParseTest =
+  testCase "nixpkgs tree parses (if found)" $ do
+    mRoot <- findNixpkgsRoot
+    case mRoot of
+      Nothing -> pure ()
+      Just root -> do
+        exists <- doesDirectoryExist root
+        if exists
+          then assertNixpkgsCorpusParses root
+          else assertFailure $ "<nixpkgs> path does not exist: " <> root
+
+findNixpkgsRoot :: IO (Maybe FilePath)
+findNixpkgsRoot = do
+  (exitCode, stdout, _) <- readProcessWithExitCode "nix-instantiate" ["--find-file", "nixpkgs"] ""
+  pure $ case exitCode of
+    ExitSuccess ->
+      case lines stdout of
+        path : _ | not (null path) -> Just path
+        _ -> Nothing
+    _ -> Nothing
+
+assertNixpkgsCorpusParses :: FilePath -> Assertion
+assertNixpkgsCorpusParses root = do
+  nixFiles <- listNixFiles root
+  failures <- go [] nixFiles
+  case failures of
+    [] -> pure ()
+    _ ->
+      assertFailure . unlines $
+        ["failed to parse " <> show (length failures) <> " nixpkgs files out of " <> show (length nixFiles)]
+          <> fmap renderFailure (take 20 failures)
+  where
+    go !failures [] = pure (reverse failures)
+    go !failures (fp : rest) = do
+      src <- T.readFile fp
+      case runNixParser nixFile fp src of
+        (Right _, _) -> go failures rest
+        (Left err, _) ->
+          go ((makeRelative root fp, errorBundlePretty err) : failures) rest
+
+    renderFailure (fp, err) = "FAIL " <> fp <> "\n" <> err
+
+listNixFiles :: FilePath -> IO [FilePath]
+listNixFiles root = do
+  paths <- walk root
+  pure $ List.sort [path | path <- paths, takeExtension path == ".nix"]
+  where
+    walk dir = do
+      entries <- listDirectory dir
+      let paths = fmap (dir </>) entries
+      files <- filterM doesFileExist paths
+      dirs <- filterM doesDirectoryExist paths
+      nested <- go [] dirs
+      pure (files <> nested)
+
+    go acc [] = pure acc
+    go acc (dir : rest) = do
+      nested <- walk dir
+      let acc' = nested <> acc
+      acc' `seq` go acc' rest
 
 integerLiteralParses :: Assertion
 integerLiteralParses = do

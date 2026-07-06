@@ -1,24 +1,40 @@
-cabal-version:   3.0
-name:            nix-lang
-version:         0.0.0
-synopsis:        A toy parser for Nix language
-description:     See README for details.
-category:        Nix
-license:         BSD-3-Clause
-license-file:    LICENSE
-author:          berberman
-maintainer:      berberman <berberman@yandex.com>
-copyright:       Copyright (c) berberman 2022-2026
-stability:       alpha
-homepage:        https://github.com/berberman/nix-lang
-bug-reports:     https://github.com/berberman/nix-lang/issues
+cabal-version:      3.0
+name:               nix-lang
+version:            0.1.0.0
+synopsis:           Parser and printers for the Nix language
+description:
+  nix-lang provides a parser, exact printer, canonical RFC 166-oriented
+  formatter, and editable Trees that Grow style AST for the Nix language.
+  It supports lossless round-tripping for parsed syntax while also offering
+  a fresh syntax tree and formatter for generated Nix expressions.
+
+category:           Nix
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             berberman
+maintainer:         berberman <berberman@yandex.com>
+copyright:          Copyright (c) berberman 2022-2026
+stability:          alpha
+homepage:           https://github.com/berberman/nix-lang
+bug-reports:        https://github.com/berberman/nix-lang/issues
+tested-with:        GHC ==9.10.3
 extra-doc-files:
   CHANGELOG.md
   README.md
+
+extra-source-files:
+  test/fixtures/nixfmt/correct/*.nix
+  test/fixtures/nixfmt/diff/comment/*.nix
+  test/fixtures/nixfmt/diff/inherit_comment/*.nix
+  test/fixtures/nixfmt/diff/leading_blank/*.nix
+  test/fixtures/nixfmt/diff/string/*.nix
+  test/fixtures/nixfmt/diff/string_interpol/*.nix
+  test/fixtures/nixfmt/diff/strip_space/*.nix
+  test/fixtures/nixfmt/invalid/*.nix
   test/sample.nix
 
 common common-attrs
-  build-depends:      base >=4.10 && <5
+  build-depends:      base ^>=4.20
   default-language:   Haskell2010
   ghc-options:
     -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
@@ -57,19 +73,18 @@ common common-attrs
 library
   import:          common-attrs
   build-depends:
-    , containers
-    , megaparsec
-    , mtl
-    , parser-combinators
-    , prettyprinter
-    , syb
-    , template-haskell
-    , text
+    , containers          ^>=0.7
+    , megaparsec          ^>=9.7.0
+    , mtl                 ^>=2.3.1
+    , parser-combinators  ^>=1.3.1
+    , prettyprinter       ^>=1.7.1
+    , syb                 ^>=0.7.4
+    , template-haskell    ^>=2.22.0
+    , text                ^>=2.1.3
 
   exposed-modules:
     Nix.Lang.Annotation
     Nix.Lang.Edit
-    Nix.Lang.Edit.Internal.TH
     Nix.Lang.ExactPrint
     Nix.Lang.ExactPrint.Operations
     Nix.Lang.ExactPrint.Prepare.Parse
@@ -90,16 +105,18 @@ library
     Nix.Lang.Types.Syn
     Nix.Lang.Utils
 
+  other-modules:   Nix.Lang.Edit.Internal.TH
   hs-source-dirs:  src
 
 test-suite nix-lang-test
   import:         common-attrs
   type:           exitcode-stdio-1.0
   build-depends:
+    , directory    ^>=1.3.8
+    , filepath     ^>=1.5.4
     , megaparsec
     , nix-lang
     , process
-    , syb
     , tasty
     , tasty-hunit
     , text

@@ -208,11 +208,11 @@ goSetBindings path ann bindings = (reverse reversedBindings, accHints)
   where
     openSpan = annTokenSrcSpan (asOpenC ann)
     (reversedBindings, _, accHints) =
-      foldl step ([], openSpan, mempty) (zip [0 :: Int ..] bindings)
+      foldl' step ([], openSpan, mempty) (zip [0 :: Int ..] bindings)
 
-    step (bindingsSoFar, mPreviousAnchorSpan, hints) (i, locatedBinding) =
+    step (!bindingsSoFar, mPreviousAnchorSpan, !hints) (i, locatedBinding) =
       let (binding', bindingHints) = goBindingWithBefore mPreviousAnchorSpan (childNodePath path i) (unLoc locatedBinding)
-       in (binding' : bindingsSoFar, Just (getLoc locatedBinding), hints <> bindingHints)
+        in (binding' : bindingsSoFar, Just (getLoc locatedBinding), hints <> bindingHints)
 
 goFuncPat :: NodePath -> Parsed.FuncPat -> LowerResult FuncPat
 goFuncPat path pat = addPatHint path pat $ case pat of

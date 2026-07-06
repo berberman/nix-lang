@@ -545,14 +545,14 @@ setPat = try (pat bodyWithLeading) <|> pat bodyWithTrailing
       ([Located (Located Text, Maybe (Located (), LNixExpr Ps))], [Located ()]) ->
       -- ([bind], [comma], ellipsis)
       Parser ([Located (Located Text, Maybe (Located (), LNixExpr Ps))], [Located ()], Maybe (Located ()))
-    go (bs, cs) = ((bs,cs,) . pure <$> ellipsis) <|> go1
+    go (bs, cs) = ((reverse bs, reverse cs,) . pure <$> ellipsis) <|> go1
       where
-        go1 = option (bs, cs, Nothing) $ do
+        go1 = option (reverse bs, reverse cs, Nothing) $ do
           b <- bind
-          let (bs1, cs1) = (bs <> [b], cs)
-          option (bs1, cs1, Nothing) $ do
+          let bs1 = b : bs
+          option (reverse bs1, reverse cs, Nothing) $ do
             c <- located $ void $ symbol ","
-            go (bs1, cs1 <> [c])
+            go (bs1, c : cs)
     body ::
       Parser
         ( Located

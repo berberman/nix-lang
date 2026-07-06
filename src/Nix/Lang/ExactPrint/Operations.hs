@@ -75,7 +75,7 @@ cursorAtTokenStart = cursorAtSpanStart
 
 -- | Advance a render cursor through concrete output text.
 advanceCursor :: RenderCursor -> Text -> RenderCursor
-advanceCursor cursor txt = foldl step cursor (T.unpack txt)
+advanceCursor cursor = T.foldl' step cursor
   where
     step RenderCursor {..} ch = if ch == '\n' then RenderCursor (rcLine + 1) 1 else RenderCursor rcLine (rcColumn + 1)
 
