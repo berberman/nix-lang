@@ -130,6 +130,18 @@ test-suite nix-lang-test
   hs-source-dirs: test
   main-is:        Spec.hs
 
+executable cabal2nix-bench
+  import:         common-attrs
+  main-is:        BenchCabal2nix.hs
+  hs-source-dirs: app
+  build-depends:
+    , directory
+    , megaparsec
+    , nix-lang
+    , process
+    , text
+    , time
+
 source-repository head
   type:     git
   location: https://github.com/berberman/nix-lang
