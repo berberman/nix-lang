@@ -1,4 +1,4 @@
-packages: .
+packages: . ./nix-lang-qq
 
 package nix-lang
   ghc-options: -Wall
@@ -10,4 +10,3 @@ package nix-lang
 --  haddock-hoogle: True
 --  haddock-internal: True
   test-show-details: streaming
-

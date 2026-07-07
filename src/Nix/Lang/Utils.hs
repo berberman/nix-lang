@@ -4,6 +4,7 @@
 -- get reused across parsing, exact printing, and editing.
 module Nix.Lang.Utils where
 
+import Data.Char (isSpace)
 import Data.Maybe (fromJust)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -125,3 +126,11 @@ showBinOP = fromJust . showToken . opToToken
 -- "++*/+-//<<=>>===!=&&||->"
 opString :: String
 opString = T.unpack . T.concat $ showBinOP <$> [OpConcat ..]
+
+stripCommonPrefix :: String -> String
+stripCommonPrefix src = unlines $ drop commonIndent <$> ls
+  where
+    ls = lines src
+    commonIndent = case length . takeWhile isSpace <$> filter (any $ not . isSpace) ls of
+      [] -> 0
+      indents -> minimum indents

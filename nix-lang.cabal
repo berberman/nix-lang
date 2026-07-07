@@ -96,7 +96,7 @@ library
     Nix.Lang.Lexer.Text
     Nix.Lang.Outputable
     Nix.Lang.Parser
-    Nix.Lang.QQ
+    Nix.Lang.QQ.Parsed
     Nix.Lang.RFCPrint
     Nix.Lang.RFCPrint.LayoutHints
     Nix.Lang.Span
@@ -122,6 +122,7 @@ test-suite nix-lang-test
     , text
 
   other-modules:
+    Edit
     ExactPrint
     Parser
     RFCPrint
