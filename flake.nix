@@ -20,6 +20,8 @@
       with pkgs;
       {
         packages.default = haskellPackages.nix-lang;
+        packages.nix-lang = haskellPackages.nix-lang;
+        packages.nix-lang-qq = haskellPackages.nix-lang-qq;
         devShells.default =
           with haskell.lib;
           (addBuildTools (haskellPackages.nix-lang) [
@@ -34,9 +36,19 @@
         haskellPackages = prev.haskellPackages.override (old: {
           overrides = final.lib.composeExtensions (old.overrides or (_: _: { })) (
             hself: hsuper: {
-              nix-lang = final.haskell.lib.addTestToolDepends (prev.haskellPackages.callCabal2nix "nix-lang" ./.
-                { }
-              ) [ final.nixfmt ];
+              nix-lang =
+                final.haskell.lib.overrideCabal
+                  (final.haskell.lib.addTestToolDepends (prev.haskellPackages.callCabal2nix "nix-lang" ./. { }) [
+                    final.nixfmt
+                    # we'll run the parser on nixpkgs in test
+                    final.nix
+                  ])
+                  (old: {
+                    preCheck = (old.preCheck or "") + ''
+                      export NIX_PATH="nixpkgs=${final.path}"
+                    '';
+                  });
+              nix-lang-qq = hself.callCabal2nix "nix-lang-qq" ./nix-lang-qq { };
             }
           );
         });
