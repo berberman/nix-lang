@@ -24,7 +24,7 @@ tests =
   testGroup
     "parser"
     [ testCase "sample fixture parses" sampleFixtureParses,
-      nixpkgsCorpusParseTest,
+      nixpkgsParseTest,
       referenceParserFixtureTests,
       testGroup
         "literals and atoms"
@@ -98,12 +98,12 @@ sampleFixtureParses = do
     (Right _, _) -> pure ()
     (Left err, _) -> assertFailure $ errorBundlePretty err
 
-nixpkgsCorpusParseTest :: TestTree
-nixpkgsCorpusParseTest =
+nixpkgsParseTest :: TestTree
+nixpkgsParseTest =
   testCase "nixpkgs tree parses (if found)" $ do
     mRoot <- findNixpkgsRoot
     case mRoot of
-      Nothing -> pure ()
+      Nothing -> putStrLn "nixpkgs not found"
       Just root -> do
         exists <- doesDirectoryExist root
         if exists

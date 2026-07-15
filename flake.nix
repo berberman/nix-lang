@@ -24,7 +24,7 @@
         packages.nix-lang-qq = haskellPackages.nix-lang-qq;
         devShells.default =
           with haskell.lib;
-          (addBuildTools (haskellPackages.nix-lang) [
+          (addBuildTools (haskellPackages.nix-lang-qq) [
             haskell-language-server
             cabal-install
           ]).envFunc
