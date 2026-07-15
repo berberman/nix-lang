@@ -27,6 +27,8 @@
           (addBuildTools (haskellPackages.nix-lang-qq) [
             haskell-language-server
             cabal-install
+            nixfmt
+            nix
           ]).envFunc
             { };
       }
